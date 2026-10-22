@@ -2,18 +2,21 @@ import asyncpg
 import httpx
 import json
 import logging
-import os
-import asyncio
-from rag.vector.embedder import embed_query
+import uuid
+from starlette.concurrency import run_in_threadpool
+from core.config import OLLAMA_GENERATE_URL, get_ollama_model
+from rag.vector.embedder import embed_text_batch
 
 logger = logging.getLogger(__name__)
 
-async def run_community_summarizer(pool: asyncpg.Pool):
+async def run_community_summarizer(pool: asyncpg.Pool, user_id: str):
     """
     Phase 4: Global Summarization (Reducer)
     Pulls pending communities from the database queue, builds their context,
     runs them through the LLM for summarization, embeds the summary, and upserts.
+    Only the given user's communities are processed.
     """
+    user_uuid = uuid.UUID(user_id)
     while True:
         try:
             # Step 1: Resilient Polling
@@ -21,20 +24,25 @@ async def run_community_summarizer(pool: asyncpg.Pool):
                 community = await conn.fetchrow("""
                     SELECT community_id, user_id, member_entities 
                     FROM communities 
-                    WHERE summary IS NULL 
+                    WHERE summary IS NULL AND user_id = $1
                     LIMIT 1
-                """)
+                """, user_uuid)
                 
                 if not community:
                     # Queue is empty, exit the worker loop
                     break
                     
                 community_id = community['community_id']
-                user_id = community['user_id']
+                user_id_db = community['user_id']
                 member_entities_str = community['member_entities']
                 
                 try:
-                    member_entities = json.loads(member_entities_str)
+                    raw_members = (
+                        json.loads(member_entities_str)
+                        if isinstance(member_entities_str, str)
+                        else (member_entities_str or [])
+                    )
+                    member_entities = [uuid.UUID(str(e)) for e in raw_members]
                 except Exception:
                     member_entities = []
 
@@ -43,22 +51,22 @@ async def run_community_summarizer(pool: asyncpg.Pool):
                     continue
 
                 # Fetch entity details
-                entity_ids_str = ",".join(f"'{e}'" for e in member_entities)
-                entities = await conn.fetch(f"""
+                entities = await conn.fetch("""
                     SELECT name, description 
                     FROM entities 
-                    WHERE entity_id IN ({entity_ids_str})
-                """)
+                    WHERE user_id = $2 AND entity_id = ANY($1::uuid[])
+                """, member_entities, user_uuid)
                 
                 # Fetch internal edges for this community
-                edges = await conn.fetch(f"""
+                edges = await conn.fetch("""
                     SELECT r.predicate, r.description, e1.name as source_name, e2.name as target_name
                     FROM relationships r
                     JOIN entities e1 ON r.source_entity_id = e1.entity_id
                     JOIN entities e2 ON r.target_entity_id = e2.entity_id
-                    WHERE r.source_entity_id IN ({entity_ids_str}) 
-                      AND r.target_entity_id IN ({entity_ids_str})
-                """)
+                    WHERE r.user_id = $2
+                      AND r.source_entity_id = ANY($1::uuid[])
+                      AND r.target_entity_id = ANY($1::uuid[])
+                """, member_entities, user_uuid)
 
             # Step 2: Fractal Context Assembly
             context_blocks = []
@@ -92,7 +100,7 @@ Output your response as JSON matching this schema:
             
             async with httpx.AsyncClient(timeout=300.0) as client: # generous 5min timeout for complex summaries
                 payload = {
-                    "model": os.getenv("OLLAMA_MODEL", "llama3.2"),
+                    "model": get_ollama_model(),
                     "prompt": f"{system_prompt}\n\n{user_prompt}",
                     "format": "json",
                     "stream": False,
@@ -101,7 +109,7 @@ Output your response as JSON matching this schema:
                     }
                 }
                 
-                response = await client.post("http://localhost:11434/api/generate", json=payload)
+                response = await client.post(OLLAMA_GENERATE_URL, json=payload)
                 response.raise_for_status()
                 data = response.json()
                 content = data.get("response", "{}")
@@ -115,15 +123,16 @@ Output your response as JSON matching this schema:
                 summary = content
 
             # Step 4: Embedding & Upsert
-            summary_vector_np = embed_query(summary)
-            summary_vector_list = summary_vector_np.flatten().tolist()
+            # Documents are embedded without the query prefix, matching chunk/entity embeddings.
+            summary_vector_np = await run_in_threadpool(embed_text_batch, [f"{title}. {summary}"])
+            summary_vector_list = summary_vector_np[0].tolist()
             
             async with pool.acquire() as conn:
                 await conn.execute("""
                     UPDATE communities 
                     SET title = $1, summary = $2, embedding = $3 
-                    WHERE community_id = $4
-                """, title, summary, summary_vector_list, community_id)
+                    WHERE community_id = $4 AND user_id = $5
+                """, title, summary, summary_vector_list, community_id, user_id_db)
                 
             logger.info(f"Successfully summarized and embedded community {community_id}: '{title}'")
             

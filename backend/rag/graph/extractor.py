@@ -3,7 +3,7 @@ import json
 import logging
 import asyncpg
 import uuid
-import os
+from core.config import OLLAMA_GENERATE_URL, get_ollama_model
 from rag.graph.reconciler import reconcile_graph_chunk
 
 logger = logging.getLogger(__name__)
@@ -81,18 +81,19 @@ Use standardized, uppercase relationship predicates (e.g., USES, DEPENDS_ON, EXP
                 user_prompt += f"[ACTIVE TEXT TO EXTRACT FROM]\n{current_text}"
                 
                 payload = {
-                    "model": os.getenv("OLLAMA_MODEL", "llama3.2"),
+                    "model": get_ollama_model(),
                     "prompt": f"{system_prompt}\n\n{user_prompt}",
                     "format": GRAPH_SCHEMA,
                     "stream": False,
                     "options": {
                         "temperature": 0.0, # Forces deterministic extraction
-                        "num_ctx": 2048 # Caps VRAM usage
+                        "num_ctx": 2048, # Caps VRAM usage
+                        "num_predict": 1024 # Bounds runaway generations (observed >300s without a cap)
                     }
                 }
                 
                 # Execute POST to Ollama
-                response = await client.post("http://localhost:11434/api/generate", json=payload)
+                response = await client.post(OLLAMA_GENERATE_URL, json=payload)
                 response.raise_for_status()
                 
                 data = response.json()

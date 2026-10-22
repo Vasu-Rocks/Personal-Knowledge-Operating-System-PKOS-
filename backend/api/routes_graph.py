@@ -34,7 +34,7 @@ async def trigger_graph_summarization(
     """
     try:
         # We start it in the background so the endpoint returns immediately
-        background_tasks.add_task(run_community_summarizer, pool=pool)
+        background_tasks.add_task(run_community_summarizer, pool=pool, user_id=current_user["user_id"])
         return {"message": "Community summarization worker started in the background."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

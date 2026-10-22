@@ -156,11 +156,11 @@ PKOS has exactly two roles. There is no administrator role.
 | FR-GR-05 | Relationships whose endpoints were not extracted in the same chunk, or that are self-loops, SHALL be discarded. | ✅ |
 | FR-GR-06 | On completion the status SHALL be `COMPLETED`; on any unhandled error `FAILED`. | ✅ |
 | FR-GR-07 | Query-time graph retrieval SHALL select up to 2 seed entities with distance < 0.35, then up to 20 incident edges (either direction) ordered by weight desc, and return `{nodes:[{id,name,category,description,isPrimarySeed?}], links:[{source,target,predicate,description,weight}]}`; the closest seed has `isPrimarySeed:true`. | ✅ |
-| FR-GR-08 | Seed entities with no edges SHALL still be included in the prompt context and in the UI graph. | ❌ (dropped in prompt builder and UI) |
+| FR-GR-08 | Seed entities with no edges SHALL still be included in the prompt context and in the UI graph. | 🟡 (prompt: done via `=== KNOWLEDGE GRAPH ENTITIES ===`; UI still hides them) |
 | FR-GR-09 | `POST /api/v1/graph/cluster` SHALL run Louvain on the caller's edges (weighted), replace the caller's level-0 communities, store only communities with ≥ 2 members, and return `{status, communities_detected, communities_queued}` (or `{status:"no_edges"}`). | ✅ |
-| FR-GR-10 | `POST /api/v1/graph/summarize` SHALL start a background worker that summarises **only the caller's** pending communities (summary IS NULL), embeds each summary, and stores title, summary, embedding. | 🟡 (not user-scoped) |
-| FR-GR-11 | Summariser SQL SHALL use bound parameters (e.g., `= ANY($1::uuid[])`), not string interpolation. | ❌ |
-| FR-GR-12 | Graph extraction SHALL use the configured Ollama base URL and model (env), not a hard-coded URL. | 🟡 (model from env; URL hard-coded) |
+| FR-GR-10 | `POST /api/v1/graph/summarize` SHALL start a background worker that summarises **only the caller's** pending communities (summary IS NULL), embeds each summary, and stores title, summary, embedding. | ✅ |
+| FR-GR-11 | Summariser SQL SHALL use bound parameters (e.g., `= ANY($1::uuid[])`), not string interpolation. | ✅ |
+| FR-GR-12 | Graph extraction SHALL use the configured Ollama base URL and model (env), not a hard-coded URL. | ✅ (`core/config.py`; `OLLAMA_BASE_URL`, `OLLAMA_MODEL`) |
 | FR-GR-13 | Jobs left in `PROCESSING` at server start SHOULD be resumed or marked `FAILED`. | ❌ |
 | FR-GR-14 | Community summaries SHOULD be retrievable for broad questions ("global search"). | ❌ |
 

@@ -15,11 +15,13 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
     
     # Assemble Graph Context
     graph_context = ""
-    if graph_data and graph_data.get("links"):
+    if graph_data and graph_data.get("nodes"):
         # Map node IDs to names for readable prompts
         node_map = {n["id"]: n for n in graph_data.get("nodes", [])}
         graph_lines = []
-        for link in graph_data["links"]:
+        linked_ids = set()
+        for link in graph_data.get("links", []):
+            linked_ids.update((link["source"], link["target"]))
             source_node = node_map.get(link["source"], {})
             source = source_node.get("name", "Unknown")
             source_desc = source_node.get("description", "")
@@ -37,6 +39,15 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
             
         if graph_lines:
             graph_context = "\n=== KNOWLEDGE GRAPH RELATIONSHIPS ===\n" + "\n".join(graph_lines) + "\n"
+
+        # Seed entities with no edges still carry a description worth giving the LLM.
+        entity_lines = [
+            f"{n['name']}: {n['description']}" if n.get("description") else n["name"]
+            for n in graph_data["nodes"]
+            if n["id"] not in linked_ids
+        ]
+        if entity_lines:
+            graph_context += "\n=== KNOWLEDGE GRAPH ENTITIES ===\n" + "\n".join(entity_lines) + "\n"
 
     # 1. Fallback Guardrail: Intercepts failed FAISS retrieval natively.
     if not retrieved_context and not graph_context:

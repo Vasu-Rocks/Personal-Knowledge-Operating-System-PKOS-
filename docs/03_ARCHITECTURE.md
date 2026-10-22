@@ -42,7 +42,7 @@ Design principles: **local-first**, **one database for everything** (relational 
 | Chunking | langchain-text-splitters | — | RecursiveCharacterTextSplitter |
 | PDF | PyMuPDF (`fitz`) | — | |
 | Auth | PyJWT (HS256), bcrypt | — | |
-| Graph algos | networkx (Louvain) | **missing from requirements.txt** | |
+| Graph algos | networkx (Louvain) | ✅ in requirements.txt (unpinned) | |
 | HTTP clients | httpx (async), requests (sync) | **httpx missing from requirements.txt** | |
 | LLM | Ollama `/api/chat` (answers), `/api/generate` (extraction, summaries) | — | default model `llama3.2` |
 | Legacy | `faiss-cpu` in requirements; empty `backend/data/users/` | — | Leftover from pre-Postgres version; removable |
@@ -55,6 +55,8 @@ pkos_v2/
 │  ├─ main.py                  FastAPI app, CORS, lifespan (DB pool), router mounting, /health
 │  ├─ requirements.txt
 │  ├─ backfill.py              One-off: embed entities whose embedding IS NULL
+│  ├─ graph_baseline.py        Read-only graph stats; `--sample N` times extraction on N random chunks
+│  ├─ core/config.py           OLLAMA_BASE_URL / OLLAMA_GENERATE_URL / get_ollama_model()
 │  ├─ test_distance.py         Manual script: print nearest chunks/entities for a fixed query
 │  ├─ api/
 │  │  ├─ dependencies.py       get_db (pool from app.state), get_current_user (JWT → user)
@@ -248,7 +250,7 @@ Hard-coded today (to be moved to env/config module): `SECRET_KEY`, token TTL, CO
 ollama pull llama3.2
 # 3. Backend
 cd backend
-pip install -r requirements.txt networkx httpx   # last two are missing from requirements
+pip install -r requirements.txt
 python database/postgres_core.py                  # creates extension + schema (not done on startup!)
 uvicorn main:app --host 127.0.0.1 --port 8000
 # 4. Frontend
@@ -303,15 +305,15 @@ Expected scale: 1–5 users, up to ~10k documents / ~1M chunks per machine.
 | # | Item | Location | Severity |
 |---|---|---|---|
 | TD-1 | Hard-coded JWT secret | `core/security.py` | High |
-| TD-2 | Summarizer not user-scoped; f-string SQL; embeds on event loop; uses `embed_query` (query prefix) for documents | `rag/graph/summarizer.py` | High |
+| TD-2 | ~~Summarizer not user-scoped; f-string SQL; embeds on event loop; query-prefix embedding~~ fixed in G0 | `rag/graph/summarizer.py` | High |
 | TD-3 | Schema not created on startup; destructive legacy-drop migration | `database/postgres_core.py` | High |
-| TD-4 | `networkx`, `httpx` missing; `faiss-cpu` unused; nothing pinned | `requirements.txt` | High |
+| TD-4 | ~~`networkx`, `httpx` missing~~ added in G0; `faiss-cpu` unused; nothing pinned | `requirements.txt` | High |
 | TD-5 | Seed-only graph nodes dropped from prompt (needs links) and UI (renders only if links) | `prompt_builder.py`, `Dashboard.jsx` | Med |
 | TD-6 | Context labels `--- Result N ---` vs prompt citation `[Chunk N]` | `retriever.py` | Med |
 | TD-7 | Graph state is global, not per message | `Dashboard.jsx` | Med |
 | TD-8 | `extraction_status` not exposed; UI says "Synced" | `vector_db_pg.py`, `VaultView.jsx` | Med |
 | TD-9 | Sync embedding during upload request | `routes_ingest.py` | Med |
-| TD-10 | Extractor/summarizer hard-code Ollama URL | `rag/graph/*` | Low |
+| TD-10 | ~~Extractor/summarizer hard-code Ollama URL~~ fixed in G0 | `rag/graph/*` | Low |
 | TD-11 | Non-stream `/query` ignores providers, uses blocking `requests` | `routes_query.py`, `generator.py` | Low |
 | TD-12 | API base URL hard-coded in frontend | 3 files | Low |
 | TD-13 | Raw exception text in HTTP errors | `routes_ingest.py`, `routes_graph.py` | Low |

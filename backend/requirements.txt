@@ -12,3 +12,5 @@ PyJWT
 bcrypt
 asyncpg
 pgvector
+networkx
+httpx
