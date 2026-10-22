@@ -68,7 +68,7 @@ Assumed environment: single machine, one or a few local accounts (e.g., family m
 | Graph extraction (entities + relationships) | ✅ | Background task per upload via Ollama structured output. |
 | Graph-augmented retrieval (local search) | 🟡 | Seed entities + edges added to prompt; seed nodes without edges are dropped from prompt and UI. |
 | Louvain clustering + community summaries | 🟡 | API-only (`/graph/cluster`, `/graph/summarize`); no UI; summaries not used in retrieval; summarizer is not user-scoped. |
-| Extraction status visible to user | ❌ | Stored in DB (`extraction_status`) but not returned or shown; UI shows a hard-coded "Synced". |
+| Extraction status visible to user | ✅ | Vault rows show graph queued / building n/N / paused / failed / ready, with pause, start and retry buttons (G2). |
 | Chat history persistence / multi-turn memory | ❌ | Messages live in React state only; each question is answered independently. |
 | Automated tests | ❌ | Only a manual `test_distance.py` script. |
 | Setup docs, env config, packaging | ❌ | No root README, no `.env.example`, secret key hard-coded, schema must be created by running a script manually. |
@@ -125,7 +125,7 @@ The MVP is **"private, trustworthy Q&A over my own documents, with visible evide
 | US-02 | returning user | log in with email **or** username | I don't need to remember which | Must | ✅ |
 | US-03 | user | stay logged in across browser restarts | I'm not interrupted constantly | Should | ✅ (30-day token) |
 | US-04 | user | upload a PDF/TXT/MD/PY/JS by drag-and-drop | it becomes searchable | Must | ✅ |
-| US-05 | user | see whether a document is indexed, still building its graph, or failed | I know when answers will include it | Must | ❌ |
+| US-05 | user | see whether a document is indexed, still building its graph, or failed | I know when answers will include it | Must | ✅ |
 | US-06 | user | see a clear message when an upload fails (type, size, server error) | I can fix the problem | Must | ❌ |
 | US-07 | user | delete a document and everything derived from it | my data is truly removed | Must | ✅ |
 | US-08 | user | ask a question and see the answer stream in | it feels responsive | Must | ✅ |

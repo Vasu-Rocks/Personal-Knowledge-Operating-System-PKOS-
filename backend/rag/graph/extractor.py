@@ -1,10 +1,8 @@
 import httpx
 import json
 import logging
-import asyncpg
-import uuid
 from core.config import OLLAMA_CHAT_URL, get_ollama_model
-from rag.graph.reconciler import reconcile_graph_chunk, canonicalize
+from rag.graph.reconciler import canonicalize
 
 logger = logging.getLogger(__name__)
 
@@ -104,60 +102,17 @@ def ground_extraction(data: dict, *texts: str) -> dict:
     return {"entities": entities, "relationships": relationships}
 
 
-async def run_offline_extraction(pool: asyncpg.Pool, doc_id: str, filename: str):
+async def extract_chunk(client: httpx.AsyncClient, text: str, filename: str, previous_context: str = "") -> dict | None:
     """
-    Phase 2: Offline Triplet Extraction
+    Phase 2: Offline Triplet Extraction for one chunk.
+    Returns grounded {"entities", "relationships"}, or None when the model produced invalid JSON.
+    Connection and HTTP errors propagate so the worker can fail the job (it is resumable).
     """
-    logger.info(f"Starting offline graph extraction for {filename} ({doc_id})")
-    
+    response = await client.post(OLLAMA_CHAT_URL, json=build_extraction_request(text, filename, previous_context))
+    response.raise_for_status()
+    content = response.json().get("message", {}).get("content", "")
     try:
-        # Step 3: State Machine - Mark as PROCESSING
-        async with pool.acquire() as conn:
-            await conn.execute("UPDATE documents SET extraction_status = 'PROCESSING' WHERE doc_id = $1", uuid.UUID(doc_id))
-            
-            # Fetch chunks
-            rows = await conn.fetch(
-                "SELECT chunk_id, text_content FROM document_chunks WHERE doc_id = $1 ORDER BY chunk_id ASC",
-                uuid.UUID(doc_id)
-            )
-            
-        # Step 1: Async I/O inside the background task (yielding to event loop)
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            previous_context = ""
-            
-            for row in rows:
-                chunk_id = row['chunk_id']
-                current_text = row['text_content']
-                
-                payload = build_extraction_request(current_text, filename, previous_context)
-
-                response = await client.post(OLLAMA_CHAT_URL, json=payload)
-                response.raise_for_status()
-
-                content = response.json().get("message", {}).get("content", "")
-
-                # Phase 3 Integration (The Reconciliation Layer)
-                try:
-                    json_data = ground_extraction(json.loads(content), current_text, previous_context)
-                    await reconcile_graph_chunk(pool, doc_id, chunk_id, json_data)
-                    logger.info(f"Successfully reconciled Chunk {chunk_id} to DB.")
-                except json.JSONDecodeError:
-                    logger.warning(f"Ollama returned invalid JSON for Chunk {chunk_id}: {content}")
-                
-                # Prepare sliding window for next iteration (last 150 chars)
-                previous_context = current_text[-150:] if len(current_text) > 150 else current_text
-                
-        # State Machine - Mark as COMPLETED
-        async with pool.acquire() as conn:
-            await conn.execute("UPDATE documents SET extraction_status = 'COMPLETED' WHERE doc_id = $1", uuid.UUID(doc_id))
-            
-        logger.info(f"✅ Entity and Relationship Graph Extraction FULLY COMPLETE for document: {filename}!")
-            
-    except Exception as e:
-        logger.error(f"Graph extraction failed for {doc_id}: {e}")
-        # Step 3: State Machine - Mark as FAILED to prevent zombie jobs
-        try:
-            async with pool.acquire() as conn:
-                await conn.execute("UPDATE documents SET extraction_status = 'FAILED' WHERE doc_id = $1", uuid.UUID(doc_id))
-        except Exception as db_err:
-            logger.error(f"Failed to update extraction_status to FAILED: {db_err}")
+        return ground_extraction(json.loads(content), text, previous_context)
+    except json.JSONDecodeError:
+        logger.warning(f"Ollama returned invalid JSON: {content[:200]}")
+        return None

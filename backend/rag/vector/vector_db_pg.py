@@ -41,6 +41,16 @@ async def ingest_vector_batch_async(pool: asyncpg.Pool, doc_id: uuid.UUID, batch
             records_to_insert
         )
 
+async def create_graph_job_async(pool: asyncpg.Pool, doc_id: uuid.UUID, user_id: str, total_chunks: int, start: bool = True):
+    """Queues graph extraction for a freshly indexed document (or parks it as PAUSED)."""
+    status = "PENDING" if start else "PAUSED"
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO graph_jobs (doc_id, user_id, status, total_chunks) VALUES ($1, $2, $3, $4)",
+            doc_id, uuid.UUID(user_id), status, total_chunks
+        )
+        await conn.execute("UPDATE documents SET extraction_status = $2 WHERE doc_id = $1", doc_id, status)
+
 async def retrieve_similar_chunks_async(pool: asyncpg.Pool, user_id: str, query_embedding: list, k: int = 3, max_distance: float = 0.35) -> list[dict]:
     """
     Sub-Module 3.2: Retrieval & Context Assembly (PostgreSQL Optimized)
@@ -78,10 +88,28 @@ async def get_user_documents_async(pool: asyncpg.Pool, user_id: str) -> list[dic
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT doc_id, filename, created_at FROM documents WHERE user_id = $1 ORDER BY created_at DESC",
+            """
+            SELECT d.doc_id, d.filename, d.created_at,
+                   j.status AS graph_status, j.processed_chunks, j.total_chunks, j.error
+            FROM documents d
+            LEFT JOIN graph_jobs j ON j.doc_id = d.doc_id
+            WHERE d.user_id = $1
+            ORDER BY d.created_at DESC
+            """,
             uuid.UUID(user_id)
         )
-        return [{"doc_id": str(row["doc_id"]), "filename": row["filename"], "timestamp": str(row["created_at"])} for row in rows]
+        return [
+            {
+                "doc_id": str(row["doc_id"]),
+                "filename": row["filename"],
+                "timestamp": str(row["created_at"]),
+                "graph_status": row["graph_status"],
+                "graph_processed": row["processed_chunks"],
+                "graph_total": row["total_chunks"],
+                "graph_error": row["error"],
+            }
+            for row in rows
+        ]
 
 async def delete_document_async(pool: asyncpg.Pool, user_id: str, doc_id: str):
     """

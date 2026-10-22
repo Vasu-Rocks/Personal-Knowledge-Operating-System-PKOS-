@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2, Settings } from 'lucide-react';
+import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2, Settings, Play, Pause, AlertTriangle, Clock } from 'lucide-react';
 import SettingsView from './SettingsView';
 
 export default function VaultView({ width = 250 }) {
@@ -27,6 +27,58 @@ export default function VaultView({ width = 250 }) {
   useEffect(() => {
     fetchDocuments();
   }, []);
+
+  // Poll while any graph job is queued or running so progress stays live.
+  const hasActiveJob = documents.some(d => d.graph_status === 'PENDING' || d.graph_status === 'PROCESSING');
+  useEffect(() => {
+    if (!hasActiveJob) return;
+    const timer = setInterval(fetchDocuments, 4000);
+    return () => clearInterval(timer);
+  }, [hasActiveJob]);
+
+  const handleJobAction = async (docId, action, e) => {
+    e.stopPropagation();
+    try {
+      await authFetch(`http://localhost:8000/api/v1/graph/jobs/${docId}/${action}`, { method: 'POST' });
+    } catch (err) {
+      console.error(`Graph job ${action} failed`, err);
+    }
+    fetchDocuments();
+  };
+
+  const renderGraphStatus = (doc) => {
+    const { graph_status: status, graph_processed: done, graph_total: total, graph_error: error } = doc;
+    const small = { fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' };
+    if (status === 'COMPLETED') {
+      return <span style={small}><CheckCircle2 size={10} color="#10b981" /> Graph ready</span>;
+    }
+    if (status === 'PROCESSING' || status === 'PENDING') {
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+          <span style={small}>
+            {status === 'PENDING' ? <Clock size={10} /> : <Loader2 size={10} className="loader" color="var(--accent-blue)" />}
+            {status === 'PENDING' ? 'Graph queued' : `Building graph ${done}/${total}`}
+          </span>
+          <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
+            <div style={{ height: '100%', width: `${pct}%`, borderRadius: '2px', background: 'var(--accent-blue)', transition: 'width 0.4s' }} />
+          </div>
+        </div>
+      );
+    }
+    if (status === 'PAUSED') {
+      return <span style={small}><Pause size={10} /> Graph paused{total ? ` (${done}/${total})` : ''}</span>;
+    }
+    if (status === 'FAILED') {
+      return <span style={{ ...small, color: '#ef4444' }} title={error || ''}><AlertTriangle size={10} /> Graph failed{total ? ` at ${done}/${total}` : ''}</span>;
+    }
+    return null;
+  };
+
+  const iconButton = {
+    background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px'
+  };
 
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -157,10 +209,24 @@ export default function VaultView({ width = 250 }) {
                   </span>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                     <CheckCircle2 size={10} style={{ display: 'inline', marginRight: '4px' }} color="#10b981" />
-                    Synced
+                    Indexed
                   </span>
+                  {renderGraphStatus(doc)}
                 </div>
               </div>
+
+              {/* Graph job controls (visible on hover) */}
+              {hoveredIndex === idx && (doc.graph_status === 'PENDING' || doc.graph_status === 'PROCESSING') && (
+                <button onClick={(e) => handleJobAction(doc.doc_id, 'pause', e)} style={iconButton} title="Pause graph building">
+                  <Pause size={14} color="var(--text-secondary)" />
+                </button>
+              )}
+              {hoveredIndex === idx && (doc.graph_status === 'PAUSED' || doc.graph_status === 'FAILED') && (
+                <button onClick={(e) => handleJobAction(doc.doc_id, 'start', e)} style={iconButton}
+                  title={doc.graph_status === 'FAILED' ? 'Retry graph building' : 'Build graph'}>
+                  <Play size={14} color="var(--accent-blue)" />
+                </button>
+              )}
               
               {/* Delete Button (Visible on Hover) */}
               {hoveredIndex === idx && (

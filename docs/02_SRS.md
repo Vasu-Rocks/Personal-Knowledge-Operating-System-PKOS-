@@ -115,7 +115,7 @@ PKOS has exactly two roles. There is no administrator role.
 | ID | Requirement | Status |
 |---|---|---|
 | FR-DOC-01 | `GET /api/v1/documents` SHALL return only the caller's documents, newest first, as `{documents:[{doc_id, filename, timestamp}]}`. | ✅ |
-| FR-DOC-02 | The document list SHALL also include `extraction_status` (`PENDING`/`PROCESSING`/`COMPLETED`/`FAILED`) and `chunk_count`. | ❌ |
+| FR-DOC-02 | The document list SHALL also include the graph job state: `graph_status` (`PENDING`/`PROCESSING`/`PAUSED`/`COMPLETED`/`FAILED`), `graph_processed`, `graph_total`, `graph_error`. | ✅ (no `chunk_count` / index status yet) |
 | FR-DOC-03 | `DELETE /api/v1/documents/{doc_id}` SHALL delete only if the document belongs to the caller; otherwise return 404 "Document not found." (currently 400 "…or access denied"). | 🟡 |
 | FR-DOC-04 | Deleting a document SHALL cascade to its chunks and junction rows; entities no longer referenced by any chunk SHALL be deleted (DB trigger), which cascades their relationships. | ✅ |
 | FR-DOC-05 | After deletion, communities whose members no longer exist SHOULD be marked stale or deleted. | ❌ |
@@ -149,7 +149,7 @@ PKOS has exactly two roles. There is no administrator role.
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-GR-01 | After upload, a background task SHALL set `extraction_status='PROCESSING'`, then process the document's chunks in `chunk_id` order. | ✅ |
+| FR-GR-01 | After upload, a `graph_jobs` row SHALL be queued; a single in-process worker (`rag/graph/worker.py`) claims `PENDING` jobs (`FOR UPDATE SKIP LOCKED`), sets `PROCESSING`, and processes the document's un-extracted chunks in `chunk_id` order, checkpointing `document_chunks.graph_extracted_at` and `processed_chunks` per chunk. | ✅ |
 | FR-GR-02 | For each chunk the system SHALL call Ollama `/api/chat` with a bounded JSON schema (`entities` 1–12 `[name, category∈fixed enum, description]`, `relationships` 0–12 `[source, predicate, target]`), temperature 0, `num_ctx` 2048, `num_predict` 1024, timeout 180 s, including the last 150 chars of the previous chunk for pronoun resolution only. | ✅ |
 | FR-GR-03 | Invalid JSON for a chunk SHALL be logged and skipped without failing the document. | ✅ |
 | FR-GR-03a | Entities and relationship endpoints whose name does not occur in the chunk text (or its pronoun context) SHALL be discarded before reconciliation (prompt-example leakage / hallucination guard). | ✅ |
@@ -162,7 +162,10 @@ PKOS has exactly two roles. There is no administrator role.
 | FR-GR-10 | `POST /api/v1/graph/summarize` SHALL start a background worker that summarises **only the caller's** pending communities (summary IS NULL), embeds each summary, and stores title, summary, embedding. | ✅ |
 | FR-GR-11 | Summariser SQL SHALL use bound parameters (e.g., `= ANY($1::uuid[])`), not string interpolation. | ✅ |
 | FR-GR-12 | Graph extraction SHALL use the configured Ollama base URL and model (env), not a hard-coded URL. | ✅ (`core/config.py`; `OLLAMA_BASE_URL`, `OLLAMA_MODEL`) |
-| FR-GR-13 | Jobs left in `PROCESSING` at server start SHOULD be resumed or marked `FAILED`. | ❌ |
+| FR-GR-13 | Jobs left in `PROCESSING` at server start SHALL be re-queued and resume from the last checkpoint (no chunk is extracted twice). | ✅ |
+| FR-GR-16 | `POST /api/v1/graph/jobs/{doc_id}/start` (from `PAUSED`/`FAILED`) and `/pause` (from `PENDING`/`PROCESSING`) SHALL be scoped to the caller's own jobs and return 409 otherwise; a running job stops after its current chunk. | ✅ |
+| FR-GR-17 | Documents that existed before the queue SHALL be backfilled as `COMPLETED` (if finished) or `PAUSED` (never auto-started). Upload accepts `?build_graph=false` to park a new job as `PAUSED`. | ✅ |
+| FR-GR-18 | An Ollama/connection error SHALL mark the job `FAILED` with an error message (resumable via `/start`), and the worker SHALL back off 30 s before the next job. | ✅ |
 | FR-GR-14 | Community summaries SHOULD be retrievable for broad questions ("global search"). | ❌ |
 
 ### 3.6 Frontend (FE)
@@ -173,7 +176,7 @@ PKOS has exactly two roles. There is no administrator role.
 | FR-FE-02 | The token SHALL be stored in `localStorage['pkos_token']`; on load, `/me` SHALL be called and a 401 SHALL log the user out. | ✅ |
 | FR-FE-03 | The API base URL SHALL come from `VITE_API_BASE_URL` (default `http://localhost:8000`). | ❌ (hard-coded in 4 places) |
 | FR-FE-04 | Upload errors and delete errors SHALL be shown to the user. | ❌ |
-| FR-FE-05 | Each document row SHALL show its real status (FR-DOC-02) and poll until terminal. | ❌ (hard-coded "Synced") |
+| FR-FE-05 | Each document row SHALL show its real status (FR-DOC-02) and poll until terminal. | 🟡 (graph status + progress + polling done; "Indexed" is still static) |
 | FR-FE-06 | Each AI message SHALL keep its own `sources` **and** `graph`; selecting it SHALL show both. | 🟡 (graph is global) |
 | FR-FE-07 | Citations `[Chunk N]` SHALL render as badges that scroll to source card N; `[Graph Entity: X]` SHALL focus node X. | ✅ |
 | FR-FE-08 | Settings SHALL offer Ollama, OpenAI and Anthropic, store choices in `localStorage`, and show a privacy warning when a cloud provider is selected. | 🟡 (no Anthropic, no warning) |
@@ -208,6 +211,7 @@ PKOS has exactly two roles. There is no administrator role.
 | `relationships` | `rel_id UUID PK`, `user_id`, `source_entity_id → entities CASCADE`, `target_entity_id → entities CASCADE`, `predicate VARCHAR(100)`, `description`, `weight FLOAT DEFAULT 1.0` | `UNIQUE(user_id, source, target, predicate)`; indexes on source, target |
 | `chunk_entity_junction` | `(chunk_id → document_chunks CASCADE, entity_id → entities CASCADE) PK`, `mention_snippet TEXT` | trigger `trg_delete_orphan_entities` AFTER DELETE |
 | `relationship_mentions` | `(rel_id → relationships CASCADE, chunk_id → document_chunks CASCADE) PK`, `snippet TEXT` | trigger `trg_delete_orphan_relationships`: deleting the last mention deletes the edge, otherwise recomputes `weight`. Edges created before G1 have no mentions (legacy) and are never auto-deleted |
+| `graph_jobs` | `doc_id UUID PK → documents CASCADE`, `user_id → users CASCADE`, `status` (`PENDING`/`PROCESSING`/`PAUSED`/`COMPLETED`/`FAILED`), `total_chunks`, `processed_chunks`, `error`, `created_at`, `updated_at` | index on `(status, created_at)`; `document_chunks.graph_extracted_at TIMESTAMPTZ` is the per-chunk checkpoint |
 | `communities` | `community_id UUID PK`, `user_id`, `hierarchy_level INT`, `title`, `summary`, `embedding vector(384)`, `is_stale BOOL`, `member_entities JSONB` (deprecated, no longer written) | HNSW index |
 | `community_members` | `(community_id → communities CASCADE, entity_id → entities CASCADE) PK` | trigger `trg_mark_community_stale`: deleting a member flags its community `is_stale` |
 
@@ -255,7 +259,7 @@ All server errors SHALL be logged with timestamp, logger name and level (current
 | E3 | Non-UTF-8 text file | Undecodable bytes ignored. |
 | E4 | Very large PDF (e.g., 500 pages) | Memory bounded by page-streaming + 32-chunk batches; request may take minutes (FR-ING-17 resolves). |
 | E5 | User deletes a document while graph extraction is running | Extraction must not crash the server; reconciler aborts when `user_id` lookup fails; status update affects no rows. |
-| E6 | Server restarts during extraction | Status stuck at `PROCESSING` (FR-GR-13). |
+| E6 | Server restarts during extraction | Job re-queued at startup and resumed from its checkpoint (FR-GR-13). |
 | E7 | Ollama not running | Upload still indexes vectors; graph status → `FAILED`; queries stream a "Cannot connect" error. |
 | E8 | Query contains prompt-injection text | Delimiters protected by FR-QRY-10; system prompt restricts to context. |
 | E9 | Retrieved chunk itself contains instructions | Treated as content; model instructed to only use it as evidence. (Residual risk.) |

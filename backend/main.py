@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
 from database.postgres_core import init_db_pool
+from rag.graph.worker import GraphWorker
 
 # Set up global log format safely buffering to stdout seamlessly
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -21,7 +22,11 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing unified PostgreSQL connection pool...")
     pool = await init_db_pool()
     app.state.pool = pool
+    # Single background worker for graph extraction; resumes jobs interrupted by a restart.
+    app.state.graph_worker = GraphWorker(pool)
+    await app.state.graph_worker.start()
     yield
+    await app.state.graph_worker.stop()
     # Safely close down connections on system tear down
     logger.info("Terminating pooled database connections securely.")
     await pool.close()

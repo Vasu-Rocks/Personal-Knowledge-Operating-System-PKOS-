@@ -19,7 +19,7 @@ PKOS is a **single-machine, three-process application** plus a local model serve
         │  HTTP/JSON, multipart, SSE  (Bearer JWT)
         ▼
  FastAPI app (Uvicorn, :8000) ──── in-process: SentenceTransformer (bge-small, CPU)
-        │                 │                         BackgroundTasks (graph extraction, summaries)
+        │                 │                         GraphWorker task (graph extraction) + BackgroundTasks (summaries)
         │ asyncpg pool    │ HTTP (httpx/requests)
         ▼                 ▼
  PostgreSQL + pgvector   Ollama (:11434)            ── optional ──▶ OpenAI / Anthropic APIs
@@ -113,7 +113,8 @@ Embed query → **dual-track retrieval in parallel** (`asyncio.gather`): (A) chu
 ### 4.5 Graph RAG (`rag/graph`)
 | Module | Role | Trigger |
 |---|---|---|
-| `extractor.py` | Per-chunk LLM triple extraction with JSON schema + 150-char sliding context; maintains `documents.extraction_status` state machine | FastAPI `BackgroundTasks` after upload |
+| `extractor.py` | `extract_chunk()`: one bounded-schema `/api/chat` call + grounding filter, with 150-char sliding context | called by the worker |
+| `worker.py` | `GraphWorker`: single asyncio task; claims `graph_jobs` (`SKIP LOCKED`), per-chunk checkpoint, pause/delete aware, `FAILED` + 30 s back-off on Ollama errors, re-queues interrupted jobs at startup | started in `lifespan`; woken by upload / `/start` |
 | `reconciler.py` | Embeds entities, upserts nodes, junction rows, and edges (weight += 1) in one transaction per chunk | Called by extractor |
 | `cluster.py` | Loads user's edges into networkx, Louvain, replaces level-0 communities (≥2 members) with `summary=NULL` | `POST /graph/cluster` |
 | `summarizer.py` | Loop: take any community with `summary IS NULL`, build entity+edge context (≤6,000 chars), LLM JSON `{title, summary}`, embed, update | `POST /graph/summarize` (background) |
@@ -158,7 +159,9 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 | POST | `/query` | ✔ | `{query}` | `{query, response, sources[]}` | 🟡 Ollama only; unused by UI |
 | POST | `/query/stream` | ✔ | `{query}` + headers `X-LLM-Provider`, `X-Ollama-Model`, `X-OpenAI-Key`, `X-Anthropic-Key` | SSE: `sources` → `graph` → `token`* → `[DONE]` | ✅ |
 | POST | `/graph/cluster` | ✔ | – | `{status, communities_detected, communities_queued}` | ✅ |
-| POST | `/graph/summarize` | ✔ | – | `{message}` (worker started) | 🟡 not user-scoped |
+| POST | `/graph/summarize` | ✔ | – | `{message}` (worker started) | ✅ caller's communities only |
+| POST | `/graph/jobs/{doc_id}/start` | ✔ | – | `{status:"PENDING"}` or 409 | ✅ |
+| POST | `/graph/jobs/{doc_id}/pause` | ✔ | – | `{status:"PAUSED"}` or 409 | ✅ |
 
 SSE event payloads:
 ```json
@@ -315,7 +318,7 @@ Expected scale: 1–5 users, up to ~10k documents / ~1M chunks per machine.
 | TD-5 | Seed-only graph nodes dropped from prompt (needs links) and UI (renders only if links) | `prompt_builder.py`, `Dashboard.jsx` | Med |
 | TD-6 | Context labels `--- Result N ---` vs prompt citation `[Chunk N]` | `retriever.py` | Med |
 | TD-7 | Graph state is global, not per message | `Dashboard.jsx` | Med |
-| TD-8 | `extraction_status` not exposed; UI says "Synced" | `vector_db_pg.py`, `VaultView.jsx` | Med |
+| TD-8 | ~~`extraction_status` not exposed~~ graph status/progress now in `GET /documents` and the vault (G2); UI "Indexed" label is still static | `vector_db_pg.py`, `VaultView.jsx` | Med |
 | TD-9 | Sync embedding during upload request | `routes_ingest.py` | Med |
 | TD-10 | ~~Extractor/summarizer hard-code Ollama URL~~ fixed in G0 | `rag/graph/*` | Low |
 | TD-11 | Non-stream `/query` ignores providers, uses blocking `requests` | `routes_query.py`, `generator.py` | Low |

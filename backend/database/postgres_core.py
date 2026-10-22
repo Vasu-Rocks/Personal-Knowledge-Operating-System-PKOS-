@@ -242,6 +242,43 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             EXECUTE FUNCTION mark_community_stale();
         """)
 
+        # 9d. Durable graph-extraction queue (G2). One row per document; a single worker claims
+        # PENDING rows. Per-chunk progress is checkpointed in document_chunks.graph_extracted_at,
+        # so a restarted job resumes where it stopped.
+        await conn.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS graph_extracted_at TIMESTAMPTZ;")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS graph_jobs (
+                doc_id UUID PRIMARY KEY REFERENCES documents(doc_id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                total_chunks INTEGER NOT NULL DEFAULT 0,
+                processed_chunks INTEGER NOT NULL DEFAULT 0,
+                error TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS graph_jobs_status_idx ON graph_jobs(status, created_at);")
+        # Documents uploaded before the queue existed: finished ones become COMPLETED, the rest are
+        # PAUSED so that a restart never silently starts hours of LLM work. Users start them from the UI.
+        await conn.execute("""
+            INSERT INTO graph_jobs (doc_id, user_id, status, total_chunks, processed_chunks)
+            SELECT d.doc_id, d.user_id,
+                   CASE WHEN d.extraction_status = 'COMPLETED' THEN 'COMPLETED' ELSE 'PAUSED' END,
+                   COUNT(dc.chunk_id),
+                   CASE WHEN d.extraction_status = 'COMPLETED' THEN COUNT(dc.chunk_id) ELSE 0 END
+            FROM documents d
+            LEFT JOIN document_chunks dc ON dc.doc_id = d.doc_id
+            WHERE d.user_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM graph_jobs j WHERE j.doc_id = d.doc_id)
+            GROUP BY d.doc_id, d.user_id, d.extraction_status;
+        """)
+        await conn.execute("""
+            UPDATE document_chunks SET graph_extracted_at = now()
+            WHERE graph_extracted_at IS NULL
+              AND doc_id IN (SELECT doc_id FROM graph_jobs WHERE status = 'COMPLETED');
+        """)
+
         # 10. Orphan Cleanup Trigger
         await conn.execute("""
             CREATE OR REPLACE FUNCTION delete_orphan_entities()

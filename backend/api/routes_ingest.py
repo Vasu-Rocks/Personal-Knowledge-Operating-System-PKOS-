@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import APIRouter, File, UploadFile, HTTPException, Request
 import uuid
 import asyncpg
 
@@ -8,8 +8,7 @@ from rag.ingestion.pipeline import process_file_stream
 # Phase 2 Imports natively bound to Phase 5's Async PostgeSQL logic
 from rag.vector.queue_batcher import batch_generator
 from rag.vector.embedder import embed_text_batch
-from rag.vector.vector_db_pg import create_document_anchor_async, ingest_vector_batch_async, get_user_documents_async, delete_document_async
-from rag.graph.extractor import run_offline_extraction
+from rag.vector.vector_db_pg import create_document_anchor_async, ingest_vector_batch_async, get_user_documents_async, delete_document_async, create_graph_job_async
 from fastapi import Depends
 from api.dependencies import get_current_user, get_db
 from fastapi.concurrency import run_in_threadpool
@@ -37,7 +36,8 @@ ALLOWED_EXTENSIONS = {"pdf", "txt", "py", "js", "md"}
 
 @router.post("/upload")
 async def ingest_document(
-    background_tasks: BackgroundTasks,
+    request: Request,
+    build_graph: bool = True,
     file: UploadFile = File(...), 
     current_user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_db)
@@ -93,13 +93,10 @@ async def ingest_document(
             
             total_chunks += len(batch)
             
-        # Trigger Phase 2 Graph Extraction in the background
-        background_tasks.add_task(
-            run_offline_extraction,
-            pool=pool,
-            doc_id=str(doc_id),
-            filename=file.filename
-        )
+        # Queue Phase 2 Graph Extraction; the single graph worker picks it up (build_graph=false parks it as PAUSED)
+        await create_graph_job_async(pool, doc_id, active_user_id, total_chunks, start=build_graph)
+        if build_graph:
+            request.app.state.graph_worker.notify()
             
         return {
             "message": "File indexed securely into the Vector Store. Graph extraction started in background.",
