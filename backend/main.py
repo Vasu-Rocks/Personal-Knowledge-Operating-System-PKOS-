@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 from api import routes_ingest
 from api import routes_query
 from api import routes_auth
+from api import routes_graph
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,6 +51,9 @@ app.include_router(routes_query.router, prefix="/api/v1")
 
 # Phase 4 Stage 2: Authentication Bridge
 app.include_router(routes_auth.router, prefix="/api/v1", tags=["Auth"])
+
+# Phase 4 Stage 3: Graph RAG
+app.include_router(routes_graph.router, prefix="/api/v1", tags=["Graph"])
 
 
 

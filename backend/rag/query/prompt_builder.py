@@ -1,20 +1,48 @@
 import re
 
-def build_rag_prompt(user_query: str, retrieved_context: str) -> list[dict[str, str]]:
+def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict = None) -> list[dict[str, str]]:
     """
     Sub-Module 3.3: Prompt Engineering
     Constructs a strictly bounded instruction set for the quantized LLM.
     Applies negative constraints and structural ChatML/Llama-3 templating logic.
     """
+    if graph_data is None:
+        graph_data = {}
+        
     # Defensive Sanitizer: Removes 3 or more consecutive '=' signs to prevent injection,
     # but completely preserves single '=' for math and coding questions!
     user_query = re.sub(r'={3,}', '', user_query).strip()
     
+    # Assemble Graph Context
+    graph_context = ""
+    if graph_data and graph_data.get("links"):
+        # Map node IDs to names for readable prompts
+        node_map = {n["id"]: n for n in graph_data.get("nodes", [])}
+        graph_lines = []
+        for link in graph_data["links"]:
+            source_node = node_map.get(link["source"], {})
+            source = source_node.get("name", "Unknown")
+            source_desc = source_node.get("description", "")
+            
+            target_node = node_map.get(link["target"], {})
+            target = target_node.get("name", "Unknown")
+            target_desc = target_node.get("description", "")
+            
+            source_text = f"{source}: {source_desc}" if source_desc else source
+            target_text = f"{target}: {target_desc}" if target_desc else target
+            
+            # Format: (Source: Source Desc) --[PREDICATE (Relation Description)]--> (Target: Target Desc)
+            line = f"({source_text}) --[{link['predicate']} ({link['description']})]--> ({target_text})"
+            graph_lines.append(line)
+            
+        if graph_lines:
+            graph_context = "\n=== KNOWLEDGE GRAPH RELATIONSHIPS ===\n" + "\n".join(graph_lines) + "\n"
+
     # 1. Fallback Guardrail: Intercepts failed FAISS retrieval natively.
-    if not retrieved_context or retrieved_context == "No relevant documents found in your database.":
+    if not retrieved_context and not graph_context:
         return [
             {"role": "system", "content": "You are the strict, analytical AI assistant for the PKOS system. The user asked a question, but there are no uploaded documents available to answer it."},
-            {"role": "user", "content": f"System Request: The user asked '{user_query}'. Politely inform them that there are no documents in the database containing this answer. Format your response clearly in Markdown."}
+            {"role": "user", "content": f"System Request: The user asked '{user_query}'. Politely inform them that there are no documents or graph connections in the database containing this answer. Format your response clearly in Markdown."}
         ]
 
     # 2. Complete Structurally Bounded Generator Template
@@ -24,11 +52,12 @@ Your core directive is to answer the user's question ONLY using the provided CON
 CRITICAL INSTRUCTIONS:
 1. If the exact answer is not contained within the CONTEXT, you must output exactly: "I cannot find the answer in your documents."
 2. Do NOT use outside knowledge. Do NOT make up information.
-3. Always cite the Source and Page number provided in the CONTEXT when generating your answer.
+3. You MUST cite your claims using the identifiers provided, for example: [Chunk 1] or [Graph Entity: FastAPI].
 4. Format your answer thoughtfully using Markdown, placing citations in italics.
 
 ========== START CONTEXT ==========
 {retrieved_context}
+{graph_context}
 =========== END CONTEXT ==========="""
 
     return [

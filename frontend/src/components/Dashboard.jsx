@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import VaultView from './VaultView';
 import { Send, Terminal, KeySquare, ChevronRight, Activity, Bot, User, Sparkles } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import ForceGraph2D from 'react-force-graph-2d';
 
 export default function Dashboard() {
   const { authFetch } = useAuth();
@@ -17,6 +20,117 @@ export default function Dashboard() {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedMsgId, setSelectedMsgId] = useState("sys_init");
   const messagesEndRef = useRef(null);
+
+  // Graph State
+  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const graphRef = useRef(null);
+
+  // Cross-Filtering State
+  const [activeFocus, setActiveFocus] = useState(null);
+
+
+  // Layout Resizing State
+  const [leftWidth, setLeftWidth] = useState(250);
+  const [rightWidth, setRightWidth] = useState(350);
+  const isDraggingLeft = useRef(false);
+  const isDraggingRight = useRef(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (isDraggingLeft.current) {
+        let newWidth = e.clientX;
+        if (newWidth < 150) newWidth = 150;
+        if (newWidth > 500) newWidth = 500;
+        setLeftWidth(newWidth);
+      } else if (isDraggingRight.current) {
+        let newWidth = window.innerWidth - e.clientX;
+        if (newWidth < 200) newWidth = 200;
+        if (newWidth > 600) newWidth = 600;
+        setRightWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingLeft.current || isDraggingRight.current) {
+        isDraggingLeft.current = false;
+        isDraggingRight.current = false;
+        document.body.style.cursor = 'default';
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const processCitations = (text) => {
+    if (!text) return text;
+    return text.replace(/\[(chunk)\s*(\d+)\]|\[(graph entity)\s*:\s*([^\]]+)\]/gi, (match, p1, chunkId, p3, entityName) => {
+      if (p1) return `[Chunk ${chunkId}](citation://chunk/${chunkId})`;
+      if (p3) {
+        const cleanName = entityName.trim();
+        return `[Graph Entity: ${cleanName}](citation://entity/${encodeURIComponent(cleanName)})`;
+      }
+      return match;
+    });
+  };
+
+  const MarkdownComponents = {
+    a: ({ node, href, children, ...props }) => {
+      if (href && href.startsWith('citation://')) {
+        const url = new URL(href);
+        const type = url.hostname;
+        const id = decodeURIComponent(url.pathname.substring(1));
+        
+        const isHovered = activeFocus && activeFocus.type === type && activeFocus.id === id;
+        
+        return (
+          <span
+            className="citation-badge"
+            style={{
+              display: 'inline-block',
+              margin: '0 4px',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontSize: '0.85em',
+              fontWeight: '600',
+              cursor: 'pointer',
+              background: type === 'chunk' 
+                ? (isHovered ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.15)') 
+                : (isHovered ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.15)'),
+              color: type === 'chunk' ? '#10b981' : '#3b82f6',
+              border: `1px solid ${type === 'chunk' ? '#10b981' : '#3b82f6'}`,
+              transition: 'all 0.2s ease',
+              transform: isHovered ? 'scale(1.05)' : 'scale(1)'
+            }}
+            onMouseEnter={() => setActiveFocus({ type, id })}
+            onMouseLeave={() => setActiveFocus(null)}
+            onClick={() => {
+              if (type === 'chunk') {
+                document.getElementById(`source-card-${id}`)?.scrollIntoView({ 
+                  behavior: 'smooth', block: 'nearest' 
+                });
+              } else if (type === 'entity') {
+                if (graphData.nodes) {
+                  const targetNode = graphData.nodes.find(n => n.name.replace('⭐ ', '') === id || n.name === id);
+                  if (targetNode && graphRef.current) {
+                    graphRef.current.centerAt(targetNode.x, targetNode.y, 1000);
+                    graphRef.current.zoom(8, 2000);
+                  }
+                }
+              }
+            }}
+          >
+            {children}
+          </span>
+        );
+      }
+      return <a href={href} {...props} style={{ color: 'var(--accent-blue)', textDecoration: 'underline' }}>{children}</a>;
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -34,36 +148,134 @@ export default function Dashboard() {
     setInputVal('');
     
     const userMsgId = Date.now().toString();
-    setMessages(prev => [...prev, { id: userMsgId, type: "user", text: query, sources: [] }]);
+    const aiMsgId = (Date.now() + 1).toString();
+
+    setMessages(prev => [
+      ...prev,
+      { id: userMsgId, type: "user", text: query, sources: [] },
+      { id: aiMsgId, type: "ai", text: "", sources: [] }
+    ]);
     
+    setSelectedMsgId(aiMsgId);
     setIsTyping(true);
 
     try {
-      const res = await authFetch('http://localhost:8000/api/v1/query', {
+      const requestHeaders = { 'Content-Type': 'application/json' };
+      requestHeaders['X-LLM-Provider'] = localStorage.getItem('llm_provider') || 'ollama';
+      requestHeaders['X-Ollama-Model'] = localStorage.getItem('ollama_model') || 'llama3.2';
+      
+      const openaiKey = localStorage.getItem('openai_api_key');
+      if (openaiKey) requestHeaders['X-OpenAI-Key'] = openaiKey;
+      
+      const anthropicKey = localStorage.getItem('anthropic_api_key');
+      if (anthropicKey) requestHeaders['X-Anthropic-Key'] = anthropicKey;
+
+      const res = await authFetch('http://localhost:8000/api/v1/query/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: requestHeaders,
         body: JSON.stringify({ query })
       });
 
-      if (!res.ok) throw new Error("Query Failed");
+      if (!res.ok) throw new Error("Query Streaming Failed");
       
-      const data = await res.json();
-      
-      const aiMsgId = (Date.now() + 1).toString();
-      setMessages(prev => [...prev, {
-        id: aiMsgId,
-        type: "ai",
-        text: data.response,
-        sources: data.sources || []
-      }]);
-      // Auto focus the X-Ray on the newest AI response
-      setSelectedMsgId(aiMsgId);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let isDone = false;
+
+      while (!isDone) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Network packet fragmentation handling:
+        // SSE frames are delimited by double newlines '\n\n'
+        const parts = buffer.split('\n\n');
+        // Keep the last segment in the buffer because it might be incomplete across packet boundaries
+        buffer = parts.pop();
+
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+
+          const lines = trimmed.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const payloadStr = line.slice(6).trim();
+              if (payloadStr === '[DONE]') {
+                isDone = true;
+                break;
+              }
+              try {
+                const parsed = JSON.parse(payloadStr);
+                if (parsed.type === 'sources') {
+                  setMessages(prev => prev.map(m => 
+                    m.id === aiMsgId ? { ...m, sources: parsed.sources || [] } : m
+                  ));
+                } else if (parsed.type === 'graph') {
+                  const gData = parsed.data || { nodes: [], links: [] };
+                  
+                  // O(1) Precompute neighbors
+                  const neighborMap = new Map();
+                  gData.links.forEach(l => {
+                    const src = typeof l.source === 'object' ? l.source.id : l.source;
+                    const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+                    if (!neighborMap.has(src)) neighborMap.set(src, new Set());
+                    if (!neighborMap.has(tgt)) neighborMap.set(tgt, new Set());
+                    neighborMap.get(src).add(tgt);
+                    neighborMap.get(tgt).add(src);
+                  });
+
+                  gData.nodes.forEach(n => {
+                    n.neighbors = neighborMap.get(n.id) || new Set();
+                    if (n.isPrimarySeed) {
+                      n.fx = 0;
+                      n.fy = 0;
+                      n.name = `⭐ ${n.name}`;
+                      n.val = 5; // Make it significantly larger than surrounding nodes
+                    } else {
+                      n.val = 1; // Default size
+                    }
+                  });
+                  setGraphData(gData);
+                } else if (parsed.type === 'token') {
+                  setMessages(prev => prev.map(m => 
+                    m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
+                  ));
+                }
+              } catch (err) {
+                console.error("[SSE Parse Warning] Could not parse SSE payload:", payloadStr, err);
+              }
+            }
+          }
+          if (isDone) break;
+        }
+      }
+
+      // Flush remaining complete frame if any
+      if (buffer.trim().startsWith('data: ')) {
+        const payloadStr = buffer.trim().slice(6).trim();
+        if (payloadStr !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(payloadStr);
+            if (parsed.type === 'token') {
+              setMessages(prev => prev.map(m => 
+                m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
+              ));
+            }
+          } catch (e) {
+            // Ignore trailing unparseable fragment
+          }
+        }
+      }
+
     } catch (err) {
       console.error(err);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         type: "system",
-        text: "[ERROR] Downstream inference engine connection failed.",
+        text: "[ERROR] Downstream inference engine stream connection failed.",
         sources: []
       }]);
     } finally {
@@ -76,7 +288,16 @@ export default function Dashboard() {
   return (
     <div className="os-shell">
       {/* 1. Left: Vault / Documents */}
-      <VaultView />
+      <VaultView width={leftWidth} />
+      
+      {/* Resizer Left */}
+      <div 
+        className="resize-handle"
+        onMouseDown={() => {
+          isDraggingLeft.current = true;
+          document.body.style.cursor = 'col-resize';
+        }}
+      />
 
       {/* 2. Center: Terminal Chat */}
       <div className="pane-center">
@@ -120,8 +341,10 @@ export default function Dashboard() {
                 borderBottomRightRadius: msg.type === 'user' ? '2px' : 'var(--radius-md)'
               }}>
                 {msg.type === 'ai' || msg.type === 'system' ? (
-                  <div style={{ whiteSpace: 'pre-wrap', fontFamily: msg.type === 'system' ? 'monospace' : 'inherit' }}>
-                    {msg.text}
+                  <div className={msg.type === 'system' ? 'system-msg-text' : 'markdown-prose'}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                      {processCitations(msg.text)}
+                    </ReactMarkdown>
                   </div>
                 ) : (
                   msg.text
@@ -177,8 +400,17 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Resizer Right */}
+      <div 
+        className="resize-handle"
+        onMouseDown={() => {
+          isDraggingRight.current = true;
+          document.body.style.cursor = 'col-resize';
+        }}
+      />
+
       {/* 3. Right Sidebar: RAG X-Ray */}
-      <div className="pane-right">
+      <div className="pane-right" style={{ width: `${rightWidth}px` }}>
         <div style={{ height: '60px', borderBottom: 'var(--pane-border)', display: 'flex', alignItems: 'center', padding: '0 20px', background: 'rgba(0,0,0,0.2)' }}>
           <Activity size={16} color="#10b981" style={{ marginRight: '10px' }} />
           <span style={{ fontWeight: '600', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-secondary)' }}>
@@ -202,6 +434,77 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Force Graph Render */}
+              <div>
+                <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                  Interactive Entity Map
+                </h4>
+                <div style={{ 
+                  height: '300px', 
+                  border: 'var(--pane-border)', 
+                  borderRadius: 'var(--radius-md)', 
+                  overflow: 'hidden',
+                  background: 'rgba(0,0,0,0.2)',
+                  position: 'relative'
+                }}>
+                  {graphData.links && graphData.links.length > 0 ? (
+                    <ForceGraph2D
+                      ref={graphRef}
+                      graphData={graphData}
+                      width={rightWidth - 40}
+                      height={300}
+                      nodeLabel="name"
+                      nodeAutoColorBy="category"
+                      nodeColor={node => {
+                        if (!activeFocus || activeFocus.type !== 'entity') {
+                          return undefined; // Use default nodeAutoColorBy
+                        }
+                        const cleanName = node.name.replace('⭐ ', '');
+                        if (cleanName === activeFocus.id) return '#3b82f6'; // Highlight target
+                        
+                        // Check if it's a neighbor of the target
+                        const focusNode = graphData.nodes.find(n => n.name.replace('⭐ ', '') === activeFocus.id);
+                        if (focusNode && node.neighbors && node.neighbors.has(focusNode.id)) {
+                          return '#93c5fd'; // Soft highlight for neighbors
+                        }
+                        return 'rgba(255,255,255,0.05)'; // Dim all others
+                      }}
+                      linkColor={link => {
+                        if (!activeFocus || activeFocus.type !== 'entity') return 'rgba(255,255,255,0.2)';
+                        const focusNode = graphData.nodes.find(n => n.name.replace('⭐ ', '') === activeFocus.id);
+                        if (!focusNode) return 'rgba(255,255,255,0.2)';
+                        
+                        const src = typeof link.source === 'object' ? link.source.id : link.source;
+                        const tgt = typeof link.target === 'object' ? link.target.id : link.target;
+                        if (src === focusNode.id || tgt === focusNode.id) return '#3b82f6';
+                        return 'rgba(255,255,255,0.05)';
+                      }}
+                      onNodeHover={node => {
+                        if (node) {
+                          const cleanName = node.name.replace('⭐ ', '');
+                          setActiveFocus({ type: 'entity', id: cleanName });
+                        } else {
+                          setActiveFocus(null);
+                        }
+                      }}
+                      linkDirectionalArrowLength={3.5}
+                      linkDirectionalArrowRelPos={1}
+                      linkCurvature={0.25}
+                      linkLabel={link => `${link.predicate}: ${link.description}`}
+                      backgroundColor="transparent"
+                      onNodeClick={node => {
+                        graphRef.current.centerAt(node.x, node.y, 1000);
+                        graphRef.current.zoom(8, 2000);
+                      }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '12px', padding: '20px', textAlign: 'center' }}>
+                      No direct graph connections found. The engine will rely strictly on semantic vector search.
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Source Render blocks */}
               <div>
                 <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px', color: 'var(--text-secondary)' }}>
@@ -211,9 +514,16 @@ export default function Dashboard() {
                 {selectedMsg.sources && selectedMsg.sources.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {selectedMsg.sources.map((src, idx) => (
-                      <div key={idx} style={{
-                        background: 'rgba(255,255,255,0.02)', border: 'var(--pane-border)',
-                        borderRadius: 'var(--radius-md)', overflow: 'hidden'
+                      <div key={idx} id={`source-card-${idx + 1}`} style={{
+                        background: (activeFocus?.type === 'chunk' && activeFocus.id === String(idx + 1)) 
+                          ? 'rgba(16, 185, 129, 0.15)' 
+                          : 'rgba(255,255,255,0.02)', 
+                        border: (activeFocus?.type === 'chunk' && activeFocus.id === String(idx + 1))
+                          ? '1px solid #10b981'
+                          : 'var(--pane-border)',
+                        borderRadius: 'var(--radius-md)', 
+                        overflow: 'hidden',
+                        transition: 'all 0.3s ease'
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderBottom: 'var(--pane-border)' }}>
                           <span style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text-primary)' }}>{src.filename}</span>

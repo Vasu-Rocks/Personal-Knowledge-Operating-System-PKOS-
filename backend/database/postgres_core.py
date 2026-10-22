@@ -83,7 +83,8 @@ async def configure_unified_schema(pool: asyncpg.Pool):
                 doc_id UUID PRIMARY KEY,
                 user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
                 filename VARCHAR(255) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                extraction_status VARCHAR(50) DEFAULT 'PENDING'
             );
         """)
         
@@ -103,7 +104,93 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             CREATE INDEX IF NOT EXISTS hnsw_embedding_idx 
             ON document_chunks USING hnsw (embedding vector_cosine_ops);
         """)
-        logger.info("Successfully stamped Phase 5 Relational and Vector structure.")
+
+        # ---------------------------------------------------------
+        # GRAPH RAG SCHEMA (Phase 1)
+        # ---------------------------------------------------------
+
+        # 6. Entity Store (Node Subsystem)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS entities (
+                entity_id UUID PRIMARY KEY,
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                name VARCHAR(255) NOT NULL,
+                canonical_name VARCHAR(255) NOT NULL,
+                category VARCHAR(50) NOT NULL,
+                description TEXT,
+                embedding vector(384),
+                UNIQUE(user_id, canonical_name)
+            );
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS entities_embedding_idx 
+            ON entities USING hnsw (embedding vector_cosine_ops);
+        """)
+
+        # 7. Relationship Store (Edge Subsystem)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS relationships (
+                rel_id UUID PRIMARY KEY,
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                source_entity_id UUID REFERENCES entities(entity_id) ON DELETE CASCADE,
+                target_entity_id UUID REFERENCES entities(entity_id) ON DELETE CASCADE,
+                predicate VARCHAR(100) NOT NULL,
+                description TEXT,
+                weight FLOAT DEFAULT 1.0,
+                UNIQUE(user_id, source_entity_id, target_entity_id, predicate)
+            );
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS rel_source_idx ON relationships(source_entity_id);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS rel_target_idx ON relationships(target_entity_id);")
+
+        # 8. Grounding Junction (Provenance Subsystem)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunk_entity_junction (
+                chunk_id INTEGER REFERENCES document_chunks(chunk_id) ON DELETE CASCADE,
+                entity_id UUID REFERENCES entities(entity_id) ON DELETE CASCADE,
+                mention_snippet TEXT,
+                PRIMARY KEY (chunk_id, entity_id)
+            );
+        """)
+
+        # 9. Community Structure Store (Macro Subsystem)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS communities (
+                community_id UUID PRIMARY KEY,
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                hierarchy_level INTEGER NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                summary TEXT,
+                embedding vector(384),
+                member_entities JSONB
+            );
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS communities_embedding_idx 
+            ON communities USING hnsw (embedding vector_cosine_ops);
+        """)
+
+        # 10. Orphan Cleanup Trigger
+        await conn.execute("""
+            CREATE OR REPLACE FUNCTION delete_orphan_entities()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM chunk_entity_junction WHERE entity_id = OLD.entity_id) THEN
+                    DELETE FROM entities WHERE entity_id = OLD.entity_id;
+                END IF;
+                RETURN OLD;
+            END;
+            $$ LANGUAGE plpgsql;
+        """)
+        await conn.execute("""
+            DROP TRIGGER IF EXISTS trg_delete_orphan_entities ON chunk_entity_junction;
+            CREATE TRIGGER trg_delete_orphan_entities
+            AFTER DELETE ON chunk_entity_junction
+            FOR EACH ROW
+            EXECUTE FUNCTION delete_orphan_entities();
+        """)
+
+        logger.info("Successfully stamped Phase 1 Graph RAG Schema (Nodes, Edges, Communities, Junctions).")
 
 async def verify_infrastructure():
     print("Initiating Database Build Script (Phase 5 Stage 1)...")
