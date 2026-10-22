@@ -34,7 +34,8 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
             target_text = f"{target}: {target_desc}" if target_desc else target
             
             # Format: (Source: Source Desc) --[PREDICATE (Relation Description)]--> (Target: Target Desc)
-            line = f"({source_text}) --[{link['predicate']} ({link['description']})]--> ({target_text})"
+            relation = f"{link['predicate']} ({link['description']})" if link.get("description") else link["predicate"]
+            line = f"({source_text}) --[{relation}]--> ({target_text})"
             graph_lines.append(line)
             
         if graph_lines:

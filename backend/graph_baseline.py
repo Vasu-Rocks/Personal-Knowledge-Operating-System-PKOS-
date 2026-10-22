@@ -19,9 +19,10 @@ import httpx
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.config import OLLAMA_BASE_URL, OLLAMA_GENERATE_URL, get_ollama_model
+from core.config import OLLAMA_BASE_URL, OLLAMA_CHAT_URL, get_ollama_model
 from database.postgres_core import init_db_pool
-from rag.graph.extractor import GRAPH_SCHEMA
+from rag.graph.extractor import build_extraction_request, ground_extraction
+from rag.graph.reconciler import canonicalize
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -110,31 +111,31 @@ async def time_extraction(pool, user_id, n):
 
     model = get_ollama_model()
     print(f"\n== Extraction timing: {len(rows)} chunks, model={model}, {OLLAMA_BASE_URL} ==")
-    latencies, valid, ents, rels = [], 0, [], []
+    latencies, valid, ents, rels, resolved, empty, raw_entities = [], 0, [], [], [], 0, []
     async with httpx.AsyncClient(timeout=300.0) as client:
         for i, row in enumerate(rows, 1):
-            prompt = (
-                "You are an expert knowledge graph extractor.\n"
-                "Extract entities and relationships strictly from the provided text.\n"
-                f"The text comes from a document named: '{row['filename']}'.\n"
-                "Output strictly valid JSON matching the schema.\n"
-                "Use standardized, uppercase relationship predicates (e.g., USES, DEPENDS_ON, EXPLAINS).\n\n"
-                f"[ACTIVE TEXT TO EXTRACT FROM]\n{row['text_content']}"
-            )
-            payload = {"model": model, "prompt": prompt, "format": GRAPH_SCHEMA, "stream": False,
-                       "options": {"temperature": 0.0, "num_ctx": 2048}}
+            payload = build_extraction_request(row["text_content"], row["filename"])
             start = time.perf_counter()
-            resp = await client.post(OLLAMA_GENERATE_URL, json=payload)
+            resp = await client.post(OLLAMA_CHAT_URL, json=payload)
             resp.raise_for_status()
             elapsed = time.perf_counter() - start
             body = resp.json()
             latencies.append(elapsed)
             try:
-                data = json.loads(body.get("response", ""))
+                raw = json.loads(body["message"]["content"])
+                data = ground_extraction(raw, row["text_content"])
+                raw_entities.append(len(raw.get("entities", [])))
                 valid += 1
-                ents.append(len(data.get("entities", [])))
-                rels.append(len(data.get("relationships", [])))
-            except json.JSONDecodeError:
+                names = {canonicalize(e.get("name")) for e in data.get("entities", [])} - {""}
+                edges = data.get("relationships", [])
+                # With the tolerant reconciler every edge with usable endpoints survives; "listed" is the strict rate.
+                usable = [r for r in edges if canonicalize(r.get("source")) and canonicalize(r.get("target"))
+                          and canonicalize(r.get("source")) != canonicalize(r.get("target"))]
+                ents.append(len(names))
+                rels.append(len(usable))
+                resolved.append(sum(1 for r in usable if canonicalize(r["source"]) in names and canonicalize(r["target"]) in names))
+                empty += not names
+            except (json.JSONDecodeError, KeyError):
                 pass
             print(f"chunk {i}/{len(rows)}: {elapsed:.1f}s, eval_tokens={body.get('eval_count')}")
 
@@ -144,7 +145,10 @@ async def time_extraction(pool, user_id, n):
     print(f"steady-state seconds/chunk: mean={statistics.mean(steady):.1f} median={statistics.median(steady):.1f}")
     print(f"valid JSON: {valid}/{len(rows)}")
     if ents:
-        print(f"avg entities/chunk: {statistics.mean(ents):.1f}, avg relationships/chunk: {statistics.mean(rels):.1f}")
+        print(f"avg entities/chunk: {statistics.mean(ents):.1f}, avg usable relationships/chunk: {statistics.mean(rels):.1f}")
+        print(f"relationships whose endpoints were both listed as entities: {sum(resolved)}/{sum(rels)}")
+        print(f"entities kept after grounding check: {sum(ents)}/{sum(raw_entities)}")
+        print(f"chunks with no usable entities: {empty}/{len(ents)}")
     total = await _chunk_total(pool, user_id)
     print(f"estimated full extraction of {total} chunks: {total * statistics.mean(steady) / 3600:.1f} h")
 

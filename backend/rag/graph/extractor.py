@@ -3,21 +3,27 @@ import json
 import logging
 import asyncpg
 import uuid
-from core.config import OLLAMA_GENERATE_URL, get_ollama_model
-from rag.graph.reconciler import reconcile_graph_chunk
+from core.config import OLLAMA_CHAT_URL, get_ollama_model
+from rag.graph.reconciler import reconcile_graph_chunk, canonicalize
 
 logger = logging.getLogger(__name__)
 
+ENTITY_CATEGORIES = ["PERSON", "ORGANIZATION", "TECHNOLOGY", "CONCEPT", "METHOD", "EVENT", "LOCATION", "OTHER"]
+
+# Bounds are deliberate. Unconstrained, llama3.2 either returned empty arrays (with an open
+# schema) or ran away with duplicates (plain JSON mode); minItems/maxItems keep it in between.
 GRAPH_SCHEMA = {
     "type": "object",
     "properties": {
         "entities": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
             "items": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
-                    "category": {"type": "string"},
+                    "category": {"type": "string", "enum": ENTITY_CATEGORIES},
                     "description": {"type": "string"}
                 },
                 "required": ["name", "category", "description"]
@@ -25,20 +31,78 @@ GRAPH_SCHEMA = {
         },
         "relationships": {
             "type": "array",
+            "maxItems": 12,
             "items": {
                 "type": "object",
                 "properties": {
                     "source": {"type": "string"},
-                    "target": {"type": "string"},
                     "predicate": {"type": "string"},
-                    "mention_snippet": {"type": "string"}
+                    "target": {"type": "string"}
                 },
-                "required": ["source", "target", "predicate", "mention_snippet"]
+                "required": ["source", "predicate", "target"]
             }
         }
     },
     "required": ["entities", "relationships"]
 }
+
+SYSTEM_PROMPT = (
+    "You extract a knowledge graph from a passage of a document. "
+    "List the 3-12 most important entities (" + ", ".join(ENTITY_CATEGORIES) + ") "
+    "with a one-sentence description taken from the text, then the relationships between those entities. "
+    "Every relationship's source and target must be an entity name from your entities list. "
+    "Predicates are short UPPER_SNAKE_CASE verbs like USES, PART_OF, CAUSES, DEFINES. "
+    "Use only facts stated in the text. Ignore page headers, licences, URLs and citations.\n"
+    "Example output:\n"
+    '{"entities":[{"name":"FastAPI","category":"TECHNOLOGY","description":"A Python web framework."},'
+    '{"name":"Starlette","category":"TECHNOLOGY","description":"An ASGI toolkit."}],'
+    '"relationships":[{"source":"FastAPI","predicate":"BUILT_ON","target":"Starlette"}]}'
+)
+
+
+def build_extraction_request(text: str, filename: str, previous_context: str = "") -> dict:
+    """Ollama /api/chat payload for one chunk. Shared by the extractor and graph_baseline."""
+    user = f"Document: {filename}\n\n"
+    if previous_context:
+        user += f"[PRECEDING TEXT - for resolving pronouns only]\n{previous_context}\n\n"
+    user += f"[PASSAGE TO EXTRACT FROM]\n{text}"
+    return {
+        "model": get_ollama_model(),
+        "stream": False,
+        "format": GRAPH_SCHEMA,
+        "keep_alive": "15m",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        "options": {
+            "temperature": 0.0,  # Forces deterministic extraction
+            "num_ctx": 2048,  # Caps VRAM usage
+            "num_predict": 1024,  # Bounds runaway generations (observed >300s without a cap)
+        },
+    }
+
+
+def ground_extraction(data: dict, *texts: str) -> dict:
+    """
+    Drops entities and relationship endpoints whose name never appears in the source text.
+    Small models parrot the prompt example or invent entities when a chunk has little content.
+    """
+    haystack = " ".join(" ".join(t.lower().split()) for t in texts if t)
+    entities = [
+        e for e in data.get("entities", [])
+        if isinstance(e, dict) and canonicalize(e.get("name")) and canonicalize(e["name"]) in haystack
+    ]
+    # Endpoints are grounded against the text, not the entity list: the reconciler adds the
+    # entities a relationship names but the model forgot to list.
+    relationships = [
+        r for r in data.get("relationships", [])
+        if isinstance(r, dict)
+        and canonicalize(r.get("source")) and canonicalize(r["source"]) in haystack
+        and canonicalize(r.get("target")) and canonicalize(r["target"]) in haystack
+    ]
+    return {"entities": entities, "relationships": relationships}
+
 
 async def run_offline_extraction(pool: asyncpg.Pool, doc_id: str, filename: str):
     """
@@ -65,43 +129,16 @@ async def run_offline_extraction(pool: asyncpg.Pool, doc_id: str, filename: str)
                 chunk_id = row['chunk_id']
                 current_text = row['text_content']
                 
-                system_prompt = f"""You are an expert knowledge graph extractor. 
-Extract entities and relationships strictly from the provided text.
-The text comes from a document named: '{filename}'. Use this context to resolve pronouns (he, she, it, they) to their actual noun subjects.
-Output strictly valid JSON matching the schema.
-Normalize entity names (capitalize proper nouns).
-Use standardized, uppercase relationship predicates (e.g., USES, DEPENDS_ON, EXPLAINS).
-"""
-                
-                # Step 2: Sliding Window Context Separation
-                user_prompt = ""
-                if previous_context:
-                    user_prompt += f"[PREVIOUS CONTEXT FOR PRONOUN RESOLUTION ONLY]\n{previous_context}\n\n"
-                    
-                user_prompt += f"[ACTIVE TEXT TO EXTRACT FROM]\n{current_text}"
-                
-                payload = {
-                    "model": get_ollama_model(),
-                    "prompt": f"{system_prompt}\n\n{user_prompt}",
-                    "format": GRAPH_SCHEMA,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.0, # Forces deterministic extraction
-                        "num_ctx": 2048, # Caps VRAM usage
-                        "num_predict": 1024 # Bounds runaway generations (observed >300s without a cap)
-                    }
-                }
-                
-                # Execute POST to Ollama
-                response = await client.post(OLLAMA_GENERATE_URL, json=payload)
+                payload = build_extraction_request(current_text, filename, previous_context)
+
+                response = await client.post(OLLAMA_CHAT_URL, json=payload)
                 response.raise_for_status()
-                
-                data = response.json()
-                content = data.get("response", "")
-                
+
+                content = response.json().get("message", {}).get("content", "")
+
                 # Phase 3 Integration (The Reconciliation Layer)
                 try:
-                    json_data = json.loads(content)
+                    json_data = ground_extraction(json.loads(content), current_text, previous_context)
                     await reconcile_graph_chunk(pool, doc_id, chunk_id, json_data)
                     logger.info(f"Successfully reconciled Chunk {chunk_id} to DB.")
                 except json.JSONDecodeError:

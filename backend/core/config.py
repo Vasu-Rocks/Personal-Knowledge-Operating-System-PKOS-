@@ -3,6 +3,7 @@ import os
 # Ollama endpoints and model, shared by the query path and the graph workers.
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
+OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
 
 
 def get_ollama_model() -> str:

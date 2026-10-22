@@ -7,6 +7,20 @@ from rag.vector.embedder import embed_text_batch
 
 logger = logging.getLogger(__name__)
 
+MAX_ENTITY_NAME_LEN = 100
+
+
+def canonicalize(name) -> str:
+    """Lower-cased, whitespace-collapsed key used to merge entities. Empty string means 'unusable'."""
+    if not isinstance(name, str):
+        return ""
+    key = " ".join(name.lower().split())
+    # Drops pure-symbol noise such as '++' or '-' that small models emit for code and layout fragments.
+    # Single letters stay: 'C' and 'R' are real entities.
+    if len(key) > MAX_ENTITY_NAME_LEN or not any(c.isalnum() for c in key):
+        return ""
+    return key
+
 async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, json_data: Dict[str, Any]):
     """
     Phase 3: The Reconciliation Layer
@@ -30,32 +44,33 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
 
             # Step 2: Entity UPSERT & Translation Dictionary
             translation_dict = {}
-            
-            valid_entities = []
-            texts_to_embed = []
-            
+
+            # Collect listed entities first, then add relationship endpoints the model forgot to list
+            # (small models often name an entity only inside a relationship).
+            pending: dict[str, dict] = {}
             for entity in json_data.get("entities", []):
-                name = entity.get("name")
-                if not name:
-                    continue
-                description = entity.get("description", "")
-                
-                valid_entities.append(entity)
-                texts_to_embed.append(f"Name: {name}. Description: {description}")
-                
-            if texts_to_embed:
-                embeddings_np = await run_in_threadpool(embed_text_batch, texts_to_embed)
-                embeddings = embeddings_np.tolist()
+                key = canonicalize(entity.get("name"))
+                if key and key not in pending:
+                    pending[key] = {
+                        "name": " ".join(entity["name"].split()),
+                        "category": (entity.get("category") or "OTHER").upper(),
+                        "description": entity.get("description") or "",
+                    }
+            for rel in json_data.get("relationships", []):
+                for endpoint in (rel.get("source"), rel.get("target")):
+                    key = canonicalize(endpoint)
+                    if key and key not in pending:
+                        pending[key] = {"name": " ".join(endpoint.split()), "category": "OTHER", "description": ""}
+
+            keys = list(pending)
+            if keys:
+                texts_to_embed = [f"Name: {pending[k]['name']}. Description: {pending[k]['description']}" for k in keys]
+                embeddings = (await run_in_threadpool(embed_text_batch, texts_to_embed)).tolist()
             else:
                 embeddings = []
-            
-            for i, entity in enumerate(valid_entities):
-                name = entity["name"]
-                canonical_name = name.lower().strip()
-                category = entity.get("category", "UNKNOWN").upper()
-                description = entity.get("description", "")
-                embedding_vector = embeddings[i]
-                
+
+            for key, embedding_vector in zip(keys, embeddings):
+                ent = pending[key]
                 # The Dummy Update to force RETURNING, ignores new embeddings/descriptions on conflict
                 entity_uuid = await conn.fetchval("""
                     INSERT INTO entities (entity_id, user_id, name, canonical_name, category, description, embedding)
@@ -63,9 +78,9 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
                     ON CONFLICT (user_id, canonical_name) 
                     DO UPDATE SET canonical_name = EXCLUDED.canonical_name
                     RETURNING entity_id;
-                """, uuid.uuid4(), user_id, name, canonical_name, category, description, embedding_vector)
-                
-                translation_dict[canonical_name] = entity_uuid
+                """, uuid.uuid4(), user_id, ent["name"], key, ent["category"], ent["description"], embedding_vector)
+
+                translation_dict[key] = entity_uuid
 
             # Step 3: Provenance Anchoring (Junction Linking)
             for canonical_name, entity_uuid in translation_dict.items():
@@ -83,8 +98,8 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
                 if not source_name or not target_name:
                     continue
                     
-                source_canonical = source_name.lower().strip()
-                target_canonical = target_name.lower().strip()
+                source_canonical = canonicalize(source_name)
+                target_canonical = canonicalize(target_name)
                 
                 source_uuid = translation_dict.get(source_canonical)
                 target_uuid = translation_dict.get(target_canonical)
@@ -98,7 +113,7 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
                     logger.debug(f"Discarding self-loop relationship on {source_canonical}")
                     continue
                     
-                predicate = rel.get("predicate", "RELATED_TO").upper().strip()
+                predicate = (rel.get("predicate") or "RELATED_TO").upper().strip().replace(" ", "_")[:100]
                 description = rel.get("mention_snippet", "")
                 
                 # The Weight Increment UPSERT

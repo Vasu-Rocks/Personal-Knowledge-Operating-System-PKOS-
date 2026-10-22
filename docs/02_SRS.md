@@ -150,10 +150,11 @@ PKOS has exactly two roles. There is no administrator role.
 | ID | Requirement | Status |
 |---|---|---|
 | FR-GR-01 | After upload, a background task SHALL set `extraction_status='PROCESSING'`, then process the document's chunks in `chunk_id` order. | ✅ |
-| FR-GR-02 | For each chunk the system SHALL call Ollama `/api/generate` with a JSON schema (`entities[name,category,description]`, `relationships[source,target,predicate,mention_snippet]`), temperature 0, `num_ctx` 2048, timeout 180 s, including the last 150 chars of the previous chunk for pronoun resolution only. | ✅ |
+| FR-GR-02 | For each chunk the system SHALL call Ollama `/api/chat` with a bounded JSON schema (`entities` 1–12 `[name, category∈fixed enum, description]`, `relationships` 0–12 `[source, predicate, target]`), temperature 0, `num_ctx` 2048, `num_predict` 1024, timeout 180 s, including the last 150 chars of the previous chunk for pronoun resolution only. | ✅ |
 | FR-GR-03 | Invalid JSON for a chunk SHALL be logged and skipped without failing the document. | ✅ |
+| FR-GR-03a | Entities and relationship endpoints whose name does not occur in the chunk text (or its pronoun context) SHALL be discarded before reconciliation (prompt-example leakage / hallucination guard). | ✅ |
 | FR-GR-04 | Reconciliation SHALL, in one transaction per chunk: upsert entities by `(user_id, lower(trim(name)))` (first description/category wins), link each entity to the chunk in `chunk_entity_junction`, and upsert relationships by `(user_id, source, target, UPPER(predicate))`, adding 1.0 to `weight` on conflict. | ✅ |
-| FR-GR-05 | Relationships whose endpoints were not extracted in the same chunk, or that are self-loops, SHALL be discarded. | ✅ |
+| FR-GR-05 | Relationship endpoints missing from the chunk's entity list SHALL be created as entities (category `OTHER`); self-loops and names with no alphanumeric character or > 100 chars SHALL be discarded. | ✅ |
 | FR-GR-06 | On completion the status SHALL be `COMPLETED`; on any unhandled error `FAILED`. | ✅ |
 | FR-GR-07 | Query-time graph retrieval SHALL select up to 2 seed entities with distance < 0.35, then up to 20 incident edges (either direction) ordered by weight desc, and return `{nodes:[{id,name,category,description,isPrimarySeed?}], links:[{source,target,predicate,description,weight}]}`; the closest seed has `isPrimarySeed:true`. | ✅ |
 | FR-GR-08 | Seed entities with no edges SHALL still be included in the prompt context and in the UI graph. | 🟡 (prompt: done via `=== KNOWLEDGE GRAPH ENTITIES ===`; UI still hides them) |
