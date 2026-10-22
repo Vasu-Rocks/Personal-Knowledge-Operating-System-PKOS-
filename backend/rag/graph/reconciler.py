@@ -116,11 +116,25 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
                 predicate = (rel.get("predicate") or "RELATED_TO").upper().strip().replace(" ", "_")[:100]
                 description = rel.get("mention_snippet", "")
                 
-                # The Weight Increment UPSERT
-                await conn.execute("""
+                # Edge UPSERT; a dummy update forces RETURNING, and an existing description is kept.
+                rel_id = await conn.fetchval("""
                     INSERT INTO relationships (rel_id, user_id, source_entity_id, target_entity_id, predicate, description)
                     VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (user_id, source_entity_id, target_entity_id, predicate) 
-                    DO UPDATE SET weight = relationships.weight + 1.0;
+                    DO UPDATE SET description = COALESCE(NULLIF(relationships.description, ''), EXCLUDED.description)
+                    RETURNING rel_id;
                 """, uuid.uuid4(), user_id, source_uuid, target_uuid, predicate, description)
+
+                # Provenance: this chunk supports the edge. Weight is the number of supporting chunks,
+                # so re-processing a chunk is idempotent and deleting a document lowers it.
+                await conn.execute("""
+                    INSERT INTO relationship_mentions (rel_id, chunk_id, snippet)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT DO NOTHING;
+                """, rel_id, chunk_id, description or None)
+                await conn.execute("""
+                    UPDATE relationships
+                    SET weight = (SELECT COUNT(*) FROM relationship_mentions WHERE rel_id = $1)
+                    WHERE rel_id = $1;
+                """, rel_id)
 

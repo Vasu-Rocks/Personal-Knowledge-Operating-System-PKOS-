@@ -170,6 +170,78 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             ON communities USING hnsw (embedding vector_cosine_ops);
         """)
 
+        # 9b. Edge Provenance (G1): which chunks support each relationship.
+        # Edge weight is derived from this table, and an edge disappears with its last mention.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS relationship_mentions (
+                rel_id UUID REFERENCES relationships(rel_id) ON DELETE CASCADE,
+                chunk_id INTEGER REFERENCES document_chunks(chunk_id) ON DELETE CASCADE,
+                snippet TEXT,
+                PRIMARY KEY (rel_id, chunk_id)
+            );
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS rel_mentions_chunk_idx ON relationship_mentions(chunk_id);")
+        await conn.execute("""
+            CREATE OR REPLACE FUNCTION delete_orphan_relationships()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM relationship_mentions WHERE rel_id = OLD.rel_id) THEN
+                    DELETE FROM relationships WHERE rel_id = OLD.rel_id;
+                ELSE
+                    UPDATE relationships
+                    SET weight = (SELECT COUNT(*) FROM relationship_mentions WHERE rel_id = OLD.rel_id)
+                    WHERE rel_id = OLD.rel_id;
+                END IF;
+                RETURN OLD;
+            END;
+            $$ LANGUAGE plpgsql;
+        """)
+        await conn.execute("""
+            DROP TRIGGER IF EXISTS trg_delete_orphan_relationships ON relationship_mentions;
+            CREATE TRIGGER trg_delete_orphan_relationships
+            AFTER DELETE ON relationship_mentions
+            FOR EACH ROW
+            EXECUTE FUNCTION delete_orphan_relationships();
+        """)
+
+        # 9c. Community membership with real foreign keys (replaces communities.member_entities JSONB).
+        await conn.execute("ALTER TABLE communities ADD COLUMN IF NOT EXISTS is_stale BOOLEAN NOT NULL DEFAULT FALSE;")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS community_members (
+                community_id UUID REFERENCES communities(community_id) ON DELETE CASCADE,
+                entity_id UUID REFERENCES entities(entity_id) ON DELETE CASCADE,
+                PRIMARY KEY (community_id, entity_id)
+            );
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS community_members_entity_idx ON community_members(entity_id);")
+        # One-time copy of JSONB members written before this table existed (skips entities that are gone).
+        await conn.execute("""
+            INSERT INTO community_members (community_id, entity_id)
+            SELECT c.community_id, e.entity_id
+            FROM communities c
+            CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(c.member_entities, '[]'::jsonb)) AS m(id)
+            JOIN entities e ON e.entity_id = m.id::uuid
+            WHERE NOT EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = c.community_id)
+            ON CONFLICT DO NOTHING;
+        """)
+        # Deleting an entity removes it from its communities; flag them so the next run reclusters.
+        await conn.execute("""
+            CREATE OR REPLACE FUNCTION mark_community_stale()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                UPDATE communities SET is_stale = TRUE WHERE community_id = OLD.community_id;
+                RETURN OLD;
+            END;
+            $$ LANGUAGE plpgsql;
+        """)
+        await conn.execute("""
+            DROP TRIGGER IF EXISTS trg_mark_community_stale ON community_members;
+            CREATE TRIGGER trg_mark_community_stale
+            AFTER DELETE ON community_members
+            FOR EACH ROW
+            EXECUTE FUNCTION mark_community_stale();
+        """)
+
         # 10. Orphan Cleanup Trigger
         await conn.execute("""
             CREATE OR REPLACE FUNCTION delete_orphan_entities()

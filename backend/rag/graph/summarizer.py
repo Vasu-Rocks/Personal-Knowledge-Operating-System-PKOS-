@@ -22,7 +22,7 @@ async def run_community_summarizer(pool: asyncpg.Pool, user_id: str):
             # Step 1: Resilient Polling
             async with pool.acquire() as conn:
                 community = await conn.fetchrow("""
-                    SELECT community_id, user_id, member_entities 
+                    SELECT community_id, user_id 
                     FROM communities 
                     WHERE summary IS NULL AND user_id = $1
                     LIMIT 1
@@ -34,17 +34,9 @@ async def run_community_summarizer(pool: asyncpg.Pool, user_id: str):
                     
                 community_id = community['community_id']
                 user_id_db = community['user_id']
-                member_entities_str = community['member_entities']
-                
-                try:
-                    raw_members = (
-                        json.loads(member_entities_str)
-                        if isinstance(member_entities_str, str)
-                        else (member_entities_str or [])
-                    )
-                    member_entities = [uuid.UUID(str(e)) for e in raw_members]
-                except Exception:
-                    member_entities = []
+
+                member_entities = [r['entity_id'] for r in await conn.fetch(
+                    "SELECT entity_id FROM community_members WHERE community_id = $1", community_id)]
 
                 if not member_entities:
                     await conn.execute("DELETE FROM communities WHERE community_id = $1", community_id)

@@ -54,17 +54,20 @@ async def run_louvain_clustering(pool: asyncpg.Pool, user_id: str):
                 if len(member_entities) < 2:
                     continue
                     
+                community_id = uuid.uuid4()
                 await conn.execute("""
-                    INSERT INTO communities (community_id, user_id, hierarchy_level, title, summary, embedding, member_entities)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    INSERT INTO communities (community_id, user_id, hierarchy_level, title, summary, embedding)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                 """, 
-                uuid.uuid4(), 
+                community_id, 
                 uuid.UUID(user_id), 
                 0, 
                 "Pending Summary", 
                 None, 
-                None, 
-                json.dumps(member_entities))
+                None)
+                await conn.executemany(
+                    "INSERT INTO community_members (community_id, entity_id) VALUES ($1, $2)",
+                    [(community_id, uuid.UUID(e)) for e in member_entities])
                 
                 inserted_count += 1
 

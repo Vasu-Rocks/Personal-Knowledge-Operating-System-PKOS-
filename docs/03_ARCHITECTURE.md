@@ -134,9 +134,13 @@ erDiagram
   entities ||--o{ chunk_entity_junction : "mentioned in"
   entities ||--o{ relationships : "source of"
   entities ||--o{ relationships : "target of"
+  relationships ||--o{ relationship_mentions : "supported by"
+  document_chunks ||--o{ relationship_mentions : "evidence for"
+  communities ||--o{ community_members : contains
+  entities ||--o{ community_members : "belongs to"
 ```
 
-Cascade chain on document delete: `documents` → `document_chunks` → `chunk_entity_junction` → trigger deletes orphan `entities` → `relationships` cascade. `communities.member_entities` is JSONB (no FK) and can go stale.
+Cascade chain on document delete: `documents` → `document_chunks` → `chunk_entity_junction` → trigger deletes orphan `entities` → `relationships` cascade. Edges now cascade through `relationship_mentions` (last mention deletes the edge, otherwise `weight` is recomputed); community membership lives in `community_members` with FKs and deleting a member flags the community `is_stale`. Edges from before G1 have no mentions and are not cleaned up automatically.
 
 ## 5. API surface
 
@@ -317,5 +321,5 @@ Expected scale: 1–5 users, up to ~10k documents / ~1M chunks per machine.
 | TD-11 | Non-stream `/query` ignores providers, uses blocking `requests` | `routes_query.py`, `generator.py` | Low |
 | TD-12 | API base URL hard-coded in frontend | 3 files | Low |
 | TD-13 | Raw exception text in HTTP errors | `routes_ingest.py`, `routes_graph.py` | Low |
-| TD-14 | `mention_snippet` in junction never written | `reconciler.py` | Low |
+| TD-14 | `chunk_entity_junction.mention_snippet` never written (edge snippets now go to `relationship_mentions.snippet`) | `reconciler.py` | Low |
 | TD-15 | URLs replaced with `[URL]` during cleaning | `cleaner.py` | Low |
