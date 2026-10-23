@@ -78,7 +78,7 @@ def build_extraction_request(text: str, filename: str, previous_context: str = "
         ],
         "options": {
             "temperature": 0.0,  # Forces deterministic extraction
-            "num_ctx": 2048,  # Caps VRAM usage
+            "num_ctx": 2048,  # Caps VRAM usage; 4096 measured ~30% slower per token on the RTX 3050
             "num_predict": 1024,  # Bounds runaway generations (observed >300s without a cap)
         },
     }

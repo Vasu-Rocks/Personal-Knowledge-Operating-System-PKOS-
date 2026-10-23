@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Server, Cloud, Lock, Save, CheckCircle2 } from 'lucide-react';
+import { X, Server, Cloud, Lock, Save, CheckCircle2, Network, RefreshCw } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function SettingsView({ onClose }) {
   const [provider, setProvider] = useState('ollama');
@@ -7,6 +8,38 @@ export default function SettingsView({ onClose }) {
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
   const [saved, setSaved] = useState(false);
+  const { authFetch } = useAuth();
+  const [graphStatus, setGraphStatus] = useState(null);
+  const [rebuilding, setRebuilding] = useState(false);
+
+  const loadGraphStatus = async () => {
+    try {
+      const res = await authFetch('http://localhost:8000/api/v1/graph/status');
+      if (res.ok) setGraphStatus(await res.json());
+    } catch (err) {
+      console.error('Failed to load graph status', err);
+    }
+  };
+
+  useEffect(() => {
+    loadGraphStatus();
+    const timer = setInterval(loadGraphStatus, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleRebuild = async () => {
+    setRebuilding(true);
+    try {
+      await authFetch('http://localhost:8000/api/v1/graph/rebuild', { method: 'POST' });
+      await loadGraphStatus();
+    } catch (err) {
+      console.error('Rebuild request failed', err);
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
+  const mapBusy = graphStatus && (graphStatus.rebuild_queued || graphStatus.pending_summaries > 0 || graphStatus.active_jobs > 0);
 
   useEffect(() => {
     // Load existing settings
@@ -117,6 +150,35 @@ export default function SettingsView({ onClose }) {
                </div>
             </div>
           )}
+        </div>
+
+        {/* Knowledge map */}
+        <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+            <Network size={14} /> Knowledge map
+          </label>
+          {graphStatus && (
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              {graphStatus.entities} concepts, {graphStatus.relationships} relationships, {graphStatus.communities} topic groups
+              {graphStatus.pending_summaries > 0 ? ` (${graphStatus.pending_summaries} still being summarised)` : ''}
+              {graphStatus.active_jobs > 0 ? ' - documents are still being processed' : ''}
+              {graphStatus.rebuild_queued && graphStatus.active_jobs === 0 ? ' - rebuild queued' : ''}
+            </p>
+          )}
+          <button
+            onClick={handleRebuild}
+            disabled={rebuilding || (graphStatus && graphStatus.rebuild_queued)}
+            style={{
+              alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px',
+              borderRadius: 'var(--radius-sm)', fontSize: '12px', background: 'rgba(255,255,255,0.05)',
+              color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer'
+            }}
+          >
+            <RefreshCw size={14} className={mapBusy ? 'loader' : undefined} /> Rebuild knowledge map
+          </button>
+          <p style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+            Topic groups answer broad questions such as "give me an overview". They rebuild automatically after a document finishes processing.
+          </p>
         </div>
 
         {/* Footer */}

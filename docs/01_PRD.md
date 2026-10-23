@@ -67,7 +67,7 @@ Assumed environment: single machine, one or a few local accounts (e.g., family m
 | LLM provider switch (Ollama / OpenAI / Anthropic) | 🟡 | Backend supports all three; UI only exposes Ollama and OpenAI. Cloud modes send document context off-device. |
 | Graph extraction (entities + relationships) | ✅ | Background task per upload via Ollama structured output. |
 | Graph-augmented retrieval (local search) | 🟡 | Seed entities + edges added to prompt; seed nodes without edges are dropped from prompt and UI. |
-| Louvain clustering + community summaries | 🟡 | API-only (`/graph/cluster`, `/graph/summarize`); no UI; summaries not used in retrieval; summarizer is not user-scoped. |
+| Louvain clustering + community summaries | ✅ | Rebuilt automatically after a document's graph finishes; used for broad ("overview") questions; "Rebuild knowledge map" in Settings. Summary quality is limited by the 3B model (generic titles). |
 | Extraction status visible to user | ✅ | Vault rows show graph queued / building n/N / paused / failed / ready, with pause, start and retry buttons (G2). |
 | Chat history persistence / multi-turn memory | ❌ | Messages live in React state only; each question is answered independently. |
 | Automated tests | ❌ | Only a manual `test_distance.py` script. |

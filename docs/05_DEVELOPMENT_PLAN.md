@@ -146,9 +146,9 @@ Each task: **ID · description · files · done when**.
 ### M7 — Graph RAG v2 (P2, post-MVP)
 | ID | Task |
 |---|---|
-| M7-1 | Auto-trigger clustering + summarisation after N new extractions (debounced) instead of manual endpoints; UI "Rebuild knowledge map" button in Settings |
-| M7-2 | Global search: query router — if the question is broad ("overview", "themes", "summarise everything"), retrieve top community summaries by embedding; else local search |
-| M7-3 | Mark communities stale when member entities are deleted; recluster on next run |
+| M7-1 | Auto-trigger clustering + summarisation after N new extractions (debounced) instead of manual endpoints; UI "Rebuild knowledge map" button in Settings | **(done in G5)**
+| M7-2 | Global search: query router — if the question is broad ("overview", "themes", "summarise everything"), retrieve top community summaries by embedding; else local search | **(done in G5)**
+| M7-3 | Mark communities stale when member entities are deleted; recluster on next run | **(done in G5)**
 | M7-4 | Entity resolution improvements: merge near-duplicates by embedding similarity (> 0.92) + same category; update description by summarising multiple mentions |
 | M7-5 | Fixed category vocabulary in extraction schema (enum) for consistent colouring |
 | M7-6 | Full-graph explorer view in X-Ray (toggle), with search and category filter |

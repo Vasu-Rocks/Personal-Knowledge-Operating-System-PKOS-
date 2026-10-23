@@ -279,6 +279,15 @@ async def configure_unified_schema(pool: asyncpg.Pool):
               AND doc_id IN (SELECT doc_id FROM graph_jobs WHERE status = 'COMPLETED');
         """)
 
+        # 9e. Per-user flag: the graph changed since communities were last built (G5).
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS graph_state (
+                user_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+                dirty BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+        """)
+
         # 10. Orphan Cleanup Trigger
         await conn.execute("""
             CREATE OR REPLACE FUNCTION delete_orphan_entities()

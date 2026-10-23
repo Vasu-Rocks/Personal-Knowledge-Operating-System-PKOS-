@@ -5,6 +5,7 @@ import uuid
 import asyncpg
 import httpx
 
+from rag.graph.communities import rebuild_communities
 from rag.graph.extractor import extract_chunk
 from rag.graph.reconciler import reconcile_graph_chunk
 
@@ -55,6 +56,12 @@ class GraphWorker:
             try:
                 job = await self._claim()
                 if job is None:
+                    maintained = await self._maintain()
+                    if maintained is True:
+                        continue  # more users may need a rebuild; look again before sleeping
+                    if maintained is False:
+                        await asyncio.sleep(FAILURE_BACKOFF_SECONDS)
+                        continue
                     try:
                         await asyncio.wait_for(self._wake.wait(), timeout=IDLE_POLL_SECONDS)
                     except asyncio.TimeoutError:
@@ -69,6 +76,50 @@ class GraphWorker:
             except Exception:
                 logger.exception("Graph worker loop error")
                 await asyncio.sleep(FAILURE_BACKOFF_SECONDS)
+
+    async def _maintain(self) -> bool | None:
+        """
+        G5: rebuild communities for one user whose graph changed (extraction finished, entities deleted,
+        or summaries still missing), once none of their extraction jobs are pending or running.
+        Returns None if nothing to do, True if a rebuild completed, False if it could not finish (LLM offline).
+        """
+        async with self.pool.acquire() as conn:
+            user_id = await conn.fetchval("""
+                SELECT u.user_id FROM (
+                    SELECT user_id FROM graph_state WHERE dirty
+                    UNION SELECT user_id FROM communities WHERE is_stale OR summary IS NULL
+                ) u
+                WHERE NOT EXISTS (SELECT 1 FROM graph_jobs j
+                                  WHERE j.user_id = u.user_id AND j.status IN ('PENDING', 'PROCESSING'))
+                LIMIT 1
+            """)
+        if user_id is None:
+            return None
+
+        logger.info(f"Rebuilding communities for user {user_id}")
+        try:
+            result = await rebuild_communities(self.pool, str(user_id))
+        except Exception:
+            logger.exception("Community rebuild failed")
+            return False
+        logger.info(f"Community rebuild finished: {result}")
+
+        if result.get("remaining"):
+            return False  # LLM went away mid-way; keep dirty and retry after the back-off
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO graph_state (user_id, dirty, updated_at) VALUES ($1, FALSE, now())
+                ON CONFLICT (user_id) DO UPDATE SET dirty = FALSE, updated_at = now()
+            """, user_id)
+        return True
+
+    async def _mark_dirty(self, doc_id: uuid.UUID):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO graph_state (user_id, dirty, updated_at)
+                SELECT user_id, TRUE, now() FROM graph_jobs WHERE doc_id = $1
+                ON CONFLICT (user_id) DO UPDATE SET dirty = TRUE, updated_at = now()
+            """, doc_id)
 
     async def _claim(self):
         async with self.pool.acquire() as conn:
@@ -146,6 +197,7 @@ class GraphWorker:
 
             if await self._still_running(doc_id):
                 await self._set_status(doc_id, "COMPLETED")
+                await self._mark_dirty(doc_id)
                 logger.info(f"Graph extraction complete: {filename}")
             return True
 

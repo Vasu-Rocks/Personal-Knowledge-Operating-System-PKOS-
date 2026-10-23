@@ -77,3 +77,40 @@ async def trigger_graph_summarization(
         return {"message": "Community summarization worker started in the background."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/graph/rebuild")
+async def rebuild_knowledge_map(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """G5: flags the caller's graph as changed; the graph worker re-clusters and re-summarises once none of
+    their extraction jobs are running. Unchanged communities keep their summaries."""
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO graph_state (user_id, dirty, updated_at) VALUES ($1, TRUE, now())
+            ON CONFLICT (user_id) DO UPDATE SET dirty = TRUE, updated_at = now()
+        """, uuid.UUID(current_user["user_id"]))
+    request.app.state.graph_worker.notify()
+    return {"status": "queued"}
+
+@router.get("/graph/status")
+async def graph_status(
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """Counts for the Settings panel: how big the graph is and whether its communities are up to date."""
+    uid = uuid.UUID(current_user["user_id"])
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+              (SELECT COUNT(*) FROM entities WHERE user_id = $1) AS entities,
+              (SELECT COUNT(*) FROM relationships WHERE user_id = $1) AS relationships,
+              (SELECT COUNT(*) FROM communities WHERE user_id = $1) AS communities,
+              (SELECT COUNT(*) FROM communities WHERE user_id = $1 AND summary IS NULL) AS pending_summaries,
+              (SELECT COUNT(*) FROM communities WHERE user_id = $1 AND is_stale) AS stale_communities,
+              COALESCE((SELECT dirty FROM graph_state WHERE user_id = $1), FALSE) AS rebuild_queued,
+              (SELECT COUNT(*) FROM graph_jobs WHERE user_id = $1 AND status IN ('PENDING', 'PROCESSING')) AS active_jobs
+        """, uid)
+    return dict(row)

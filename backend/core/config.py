@@ -25,3 +25,8 @@ GRAPH_CHUNK_MAX_DISTANCE = float(os.getenv("GRAPH_CHUNK_MAX_DISTANCE", "0.45"))
 # Prompt budget (characters, ~4 chars/token; the model runs with num_ctx 4096).
 CONTEXT_MAX_CHARS = int(os.getenv("CONTEXT_MAX_CHARS", "6000"))
 GRAPH_CONTEXT_MAX_CHARS = int(os.getenv("GRAPH_CONTEXT_MAX_CHARS", "1800"))
+
+# Global search (G5): broad questions are answered from community summaries.
+GRAPH_GLOBAL_SEARCH = _env_bool("GRAPH_GLOBAL_SEARCH", True)
+GRAPH_COMMUNITIES = int(os.getenv("GRAPH_COMMUNITIES", "3"))
+COMMUNITY_MAX_DISTANCE = float(os.getenv("COMMUNITY_MAX_DISTANCE", "0.5"))

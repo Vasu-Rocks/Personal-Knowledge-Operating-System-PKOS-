@@ -120,8 +120,9 @@ Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::r
 | `vocab.py` | Predicate vocabulary + normaliser (with edge-direction flips), `canonicalize`/`squash` entity keys, `is_noise_entity` | reconciler, extractor, search, maintenance |
 | `search.py` | G4 local search: seed entities (name + embedding), ranked 1-hop edges, graph-found chunks | `rag/query/retrieval.py` |
 | `reconciler.py` | Embeds entities, upserts nodes, junction rows, and edges (weight += 1) in one transaction per chunk | Called by extractor |
-| `cluster.py` | Loads user's edges into networkx, Louvain, replaces level-0 communities (≥2 members) with `summary=NULL` | `POST /graph/cluster` |
-| `summarizer.py` | Loop: take any community with `summary IS NULL`, build entity+edge context (≤6,000 chars), LLM JSON `{title, summary}`, embed, update | `POST /graph/summarize` (background) |
+| `cluster.py` | Loads the user's edges into networkx, Louvain (seed 42), syncs level-0 communities (>= 3 members), keeping unchanged ones with their summaries; writes `community_members` | `communities.py` / `POST /graph/cluster` |
+| `summarizer.py` | Takes the user's communities with `summary IS NULL`, builds context from the top entities/edges by degree/weight (<= 3,500 chars), LLM JSON `{title, summary}` via `/api/chat`, embeds, updates; stops (leaving the rest queued) if the LLM is offline | `communities.py` / `POST /graph/summarize` |
+| `communities.py` | `rebuild_communities()`: cluster then summarise | worker `_maintain()`, API |
 
 Communities are **not yet used** at query time.
 
@@ -162,7 +163,9 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 | DELETE | `/documents/{doc_id}` | ✔ | – | `{message}` | ✅ |
 | POST | `/query` | ✔ | `{query}` | `{query, response, sources[]}` | 🟡 Ollama only; unused by UI |
 | POST | `/query/stream` | ✔ | `{query}` + headers `X-LLM-Provider`, `X-Ollama-Model`, `X-OpenAI-Key`, `X-Anthropic-Key` | SSE: `sources` → `graph` → `token`* → `[DONE]` | ✅ |
-| POST | `/graph/cluster` | ✔ | – | `{status, communities_detected, communities_queued}` | ✅ |
+| POST | `/graph/cluster` | ✔ | – | `{status, communities_detected, communities_kept, communities_queued, communities_replaced}` | ✅ |
+| POST | `/graph/rebuild` | ✔ | – | `{status:"queued"}` (flags dirty, wakes worker) | ✅ |
+| GET | `/graph/status` | ✔ | – | counts incl. `pending_summaries`, `stale_communities`, `rebuild_queued`, `active_jobs` | ✅ |
 | POST | `/graph/summarize` | ✔ | – | `{message}` (worker started) | ✅ caller's communities only |
 | POST | `/graph/jobs/{doc_id}/start` | ✔ | – | `{status:"PENDING"}` or 409 | ✅ |
 | POST | `/graph/jobs/{doc_id}/pause` | ✔ | – | `{status:"PAUSED"}` or 409 | ✅ |
@@ -228,7 +231,7 @@ sequenceDiagram
 ```
 
 ### 6.3 Graph maintenance
-`POST /graph/cluster` (sync, per user) → `POST /graph/summarize` (background, currently global queue).
+Automatic: when a graph job completes, `graph_state.dirty` is set; the worker (idle, no active jobs for that user) runs `rebuild_communities`. Manual: `POST /graph/rebuild`. Legacy endpoints `POST /graph/cluster` (sync) and `POST /graph/summarize` (background) remain, both per user.
 
 ## 7. Authentication & authorisation
 - Stateless JWT (HS256, 30-day expiry, `sub`=user UUID). No refresh tokens, no revocation list.
@@ -308,6 +311,7 @@ Expected scale: 1–5 users, up to ~10k documents / ~1M chunks per machine.
 - **pgvector HNSW** handles this comfortably. Note: the `WHERE user_id … AND distance < x` filter is applied *after* HNSW candidate selection; with many users, tune `hnsw.ef_search` or add per-user partial indexes if recall drops.
 - **Embedding** is the ingestion bottleneck on CPU; batching (32) is in place. GPU or ONNX runtime are later options.
 - **Graph extraction** is the slowest part (one LLM call per chunk, sequential). Next step: a persistent job table + single worker process, resumable, with progress counts. Avoid Celery/Redis unless needed — a Postgres-backed queue (`SELECT … FOR UPDATE SKIP LOCKED`) is sufficient.
+- **Measured on the dev laptop (RTX 3050 4 GB, `llama3.2` 3B Q4):** extraction ~5-6 s/chunk with `num_ctx` 2048 (4096 is ~30% slower per token, so extraction stays at 2048 and Ollama may reload the model when chat, at 4096, runs concurrently); summarising 52 communities took ~155 s; a full rebuild with unchanged communities makes no LLM calls.
 - **Clustering** loads the whole user graph into networkx — fine up to ~100k edges.
 - No horizontal scaling is planned; the app is deliberately a modular monolith.
 

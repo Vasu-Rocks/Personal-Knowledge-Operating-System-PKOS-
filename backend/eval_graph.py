@@ -30,7 +30,8 @@ from rag.query.retriever import format_context_blocks
 from rag.vector.embedder import embed_query
 
 # (graph expansion on/off, vector top-k). "vector5" is the control: same number of chunks as "graph", no graph.
-MODES = {"vector": (False, 3), "vector5": (False, 5), "graph": (True, 3)}
+# (graph expansion, vector top-k, global search). "global" = graph + the broad-question router (G5).
+MODES = {"vector": (False, 3, False), "vector5": (False, 5, False), "graph": (True, 3, False), "global": (True, 3, True)}
 
 
 def coverage(keywords: list[str], text: str) -> float:
@@ -38,9 +39,10 @@ def coverage(keywords: list[str], text: str) -> float:
     return sum(1 for k in keywords if k.lower() in text) / len(keywords)
 
 
-async def run_mode(pool, user_id, question, expansion, vector_k, answers):
+async def run_mode(pool, user_id, question, expansion, vector_k, global_search, answers):
     query_vector = (await run_in_threadpool(embed_query, question)).flatten().tolist()
-    chunks, graph = await retrieve_context(pool, user_id, question, query_vector, expansion=expansion, vector_k=vector_k)
+    chunks, graph = await retrieve_context(pool, user_id, question, query_vector, expansion=expansion, vector_k=vector_k,
+                                          global_search=global_search)
     context, used = format_context_blocks(chunks)
     result = {
         "chunks": [{"via": c["via"], "page": c["page"], "distance": round(c["distance"], 3), "text": c["text"]} for c in used],
@@ -68,13 +70,16 @@ async def main():
     pool = await init_db_pool()
     try:
         async with pool.acquire() as conn:
-            user_id = args.user or str(await conn.fetchval("SELECT user_id FROM documents ORDER BY created_at LIMIT 1"))
+            # Default: the user with the most chunks, i.e. the owner of the book the questions are about.
+            user_id = args.user or str(await conn.fetchval(
+                "SELECT d.user_id FROM documents d JOIN document_chunks dc USING (doc_id) "
+                "GROUP BY d.user_id ORDER BY COUNT(*) DESC LIMIT 1"))
 
         rows = []
         for q in questions:
             row = {"id": q["id"], "type": q["type"], "q": q["q"], "keywords": q["keywords"]}
-            for mode, (expansion, vector_k) in MODES.items():
-                res = await run_mode(pool, user_id, q["q"], expansion, vector_k, not args.no_answers)
+            for mode, (expansion, vector_k, global_search) in MODES.items():
+                res = await run_mode(pool, user_id, q["q"], expansion, vector_k, global_search, not args.no_answers)
                 res["chunk_coverage"] = coverage(q["keywords"], " ".join(c["text"] for c in res["chunks"]))
                 if "answer" in res:
                     res["answer_coverage"] = coverage(q["keywords"], res["answer"])
@@ -82,7 +87,8 @@ async def main():
             rows.append(row)
             print(f"{q['id']:3} {q['type']:6} chunk coverage " + " ".join(f"{m}={row[m]['chunk_coverage']:.2f}" for m in MODES)
                   + (" | answer coverage " + " ".join(f"{m}={row[m]['answer_coverage']:.2f}" for m in MODES) if not args.no_answers else "")
-                  + f" | graph chunks used: {sum(1 for c in row['graph']['chunks'] if c['via'] == 'graph')}", flush=True)
+                  + f" | graph chunks: {sum(1 for c in row['graph']['chunks'] if c['via'] == 'graph')}"
+                  + f" | community summaries (global): {sum(1 for c in row['global']['chunks'] if c['via'] == 'community')}", flush=True)
 
         print("\n== Mean by question type (vector -> graph) ==")
         for t in ["single", "multi", "broad", "all"]:

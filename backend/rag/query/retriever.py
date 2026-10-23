@@ -13,8 +13,12 @@ def format_context_blocks(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS
 
     blocks, used, total = [], [], 0
     for chunk in chunks:
-        origin = " (found via the knowledge graph)" if chunk.get("via") == "graph" else ""
-        block = f"[Chunk {len(used) + 1}] Source: {chunk['filename']} (Page {chunk['page']}){origin}\n{chunk['text']}"
+        if chunk.get("via") == "community":
+            header = f"[Chunk {len(used) + 1}] {chunk['filename']} (generated overview of a group of related concepts)"
+        else:
+            origin = " (found via the knowledge graph)" if chunk.get("via") == "graph" else ""
+            header = f"[Chunk {len(used) + 1}] Source: {chunk['filename']} (Page {chunk['page']}){origin}"
+        block = f"{header}\n{chunk['text']}"
         if total + len(block) > max_chars:
             if not used:
                 block = block[:max_chars]  # a single oversized chunk is truncated, never dropped

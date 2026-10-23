@@ -65,6 +65,25 @@ async def find_seed_entities(conn: asyncpg.Connection, user_id: uuid.UUID, query
     return sorted(seeds.values(), key=lambda s: -s["score"])[:max(num_seeds, MAX_NAME_SEEDS)]
 
 
+async def retrieve_community_chunks(pool: asyncpg.Pool, user_id: str, query_embedding: list,
+                                    limit: int, max_distance: float) -> list[dict]:
+    """
+    Global search: the communities whose summaries are closest to the query, shaped like chunks so they flow
+    through the same context builder, citation labels and X-Ray panel (via='community').
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT community_id, title, summary, (embedding <=> $1) AS distance
+            FROM communities
+            WHERE user_id = $2 AND summary IS NOT NULL AND embedding IS NOT NULL AND (embedding <=> $1) < $3
+            ORDER BY embedding <=> $1 ASC
+            LIMIT $4
+            """, query_embedding, uuid.UUID(user_id), max_distance, limit)
+    return [{"chunk_id": None, "filename": f"Community summary: {r['title']}", "page": "-", "text": r["summary"],
+             "distance": float(r["distance"]), "via": "community"} for r in rows]
+
+
 async def retrieve_graph_context(pool: asyncpg.Pool, user_id: str, query: str, query_embedding: list,
                                  num_seeds: int, max_edges: int, seed_max_distance: float,
                                  extra_chunks: int, chunk_max_distance: float,
