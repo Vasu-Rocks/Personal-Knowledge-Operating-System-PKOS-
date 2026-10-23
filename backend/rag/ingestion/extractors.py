@@ -1,6 +1,8 @@
 import fitz  # PyMuPDF
 import io
 
+from .headers import detect_repeating_edges, strip_edges
+
 def extract_pdf_stream(file_stream):
     """
     Sub-Module 1.2: PDF Extraction (Generator)
@@ -9,10 +11,13 @@ def extract_pdf_stream(file_stream):
     """
     # Spooled file guarantees optimal mapping over huge inputs
     with fitz.open(stream=file_stream.read(), filetype="pdf") as doc:
+        # First pass: find running heads/footers (lines repeated at page edges). The text is extracted twice
+        # rather than kept, so memory stays flat for 500-page books.
+        headers = detect_repeating_edges(doc[i].get_text("text") for i in range(len(doc)))
         for page_num in range(len(doc)):
             page = doc[page_num]
             # Extra formatting preservation on PyMuPDF
-            text = page.get_text("text") 
+            text, _ = strip_edges(page.get_text("text"), headers)
             if text.strip():
                 # page_num + 1 because users expect 1-based indexing
                 yield (page_num + 1, text)

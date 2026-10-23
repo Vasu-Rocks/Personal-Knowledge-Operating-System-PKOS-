@@ -97,6 +97,7 @@ PKOS has exactly two roles. There is no administrator role.
 | FR-ING-03 | Files larger than 50 MB (measured from the actual stream, not the header) SHALL be rejected with 413. | ✅ |
 | FR-ING-04 | The system SHALL create a `documents` row (new UUID, owner, filename, `created_at`, `extraction_status='PENDING'`) before processing chunks. | ✅ |
 | FR-ING-05 | PDFs SHALL be extracted page by page (1-based page numbers), skipping empty pages. Text/code files SHALL be decoded as UTF-8 (invalid bytes ignored) and treated as page 1. | ✅ |
+| FR-ING-05a | For PDFs of 8+ pages, lines repeated at the top or bottom (first/last 3 lines) of at least max(4, 8%) of pages (running heads, publisher footers) and bare page numbers at page edges SHALL be removed before cleaning. Pages with fewer than 12 non-empty lines, bare section numbers (`2.1`) and notebook prompts (`In[1]:`) are never treated as headers. | ✅ |
 | FR-ING-06 | Cleaning SHALL apply NFKD normalisation, remove control characters, and collapse 3+ newlines to 2. For `.py/.js`, indentation SHALL be preserved. For other types, hyphenated line breaks SHALL be joined and runs of spaces/tabs collapsed. | ✅ |
 | FR-ING-07 | Pages whose cleaned text is shorter than 50 characters SHALL be skipped. | ✅ |
 | FR-ING-08 | Text SHALL be split with a recursive splitter: chunk size 1,200 chars, overlap 200, separators `\n\n`, `\n`, `.`, ` `, ``. Chunks SHALL NOT span pages. | ✅ |

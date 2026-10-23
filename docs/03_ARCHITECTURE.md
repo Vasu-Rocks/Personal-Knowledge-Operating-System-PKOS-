@@ -57,6 +57,7 @@ pkos_v2/
 │  ├─ backfill.py              One-off: embed entities whose embedding IS NULL
 │  ├─ graph_baseline.py        Read-only graph stats; `--sample N` times extraction on N random chunks
 │  ├─ graph_maintenance.py     Dry-run/--apply clean-up: noise removal, duplicate merge, predicate normalisation
+│  ├─ clean_headers.py         Dry-run/--apply: strip running heads from already-ingested PDF chunks, re-embed, drop header-only entity links
 │  ├─ eval_graph.py            vector vs graph retrieval/answer comparison (questions in eval/)
 │  ├─ core/config.py           OLLAMA_BASE_URL / OLLAMA_GENERATE_URL / get_ollama_model()
 │  ├─ test_distance.py         Manual script: print nearest chunks/entities for a fixed query
@@ -71,7 +72,7 @@ pkos_v2/
 │  │  ├─ postgres_core.py      DSN from env, init_db_pool, configure_unified_schema (run as script)
 │  │  └─ auth_db_pg.py         user CRUD queries
 │  ├─ rag/
-│  │  ├─ ingestion/            extractors.py → cleaner.py → chunker.py, orchestrated by pipeline.py
+│  │  ├─ ingestion/            extractors.py (+ headers.py) → cleaner.py → chunker.py, orchestrated by pipeline.py
 │  │  ├─ vector/               embedder.py, queue_batcher.py, vector_db_pg.py (all chunk+graph SQL)
 │  │  ├─ query/                retriever.py (context formatter), prompt_builder.py, generator.py (LLM providers)
 │  │  └─ graph/                extractor.py, reconciler.py, cluster.py, summarizer.py
