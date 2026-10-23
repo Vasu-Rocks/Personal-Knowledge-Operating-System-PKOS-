@@ -13,9 +13,8 @@ from rag.query.prompt_builder import build_rag_prompt
 from rag.query.generator import generate_rag_response, generate_rag_response_stream
 
 # Phase 5 Stage 4 Vector Database Native Bridge
-from rag.vector.vector_db_pg import retrieve_similar_chunks_async, retrieve_relevant_graph_async
+from rag.query.retrieval import retrieve_context
 from rag.query.retriever import format_context_blocks
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +55,7 @@ async def process_query(
         query_vector_list = query_vector_np.flatten().tolist()
         
         # Step 2: HNSW Dual-Track Extraction safely scoped by cryptographic isolation boundary
-        raw_chunks, graph_data = await asyncio.gather(
-            retrieve_similar_chunks_async(pool, active_user_id, query_vector_list),
-            retrieve_relevant_graph_async(pool, active_user_id, query_vector_list)
-        )
+        raw_chunks, graph_data = await retrieve_context(pool, active_user_id, user_query, query_vector_list)
         
         # Performance Guardrail: If no chunks or graph nodes are relevant, skip LLM entirely
         if not raw_chunks and not graph_data.get("nodes"):
@@ -70,7 +66,8 @@ async def process_query(
             )
             
         # Step 3: Fast text assembly
-        retrieved_context = format_context_blocks(raw_chunks) if raw_chunks else ""
+        # Only chunks that fit the prompt budget are cited, so sources must be the chunks actually used
+        retrieved_context, raw_chunks = format_context_blocks(raw_chunks)
         
         # Step 4: Build strict instructions preventing hallucination
         rag_prompt = build_rag_prompt(user_query=user_query, retrieved_context=retrieved_context, graph_data=graph_data)
@@ -121,14 +118,11 @@ async def process_query_stream(
         query_vector_np = await run_in_threadpool(embed_query, user_query)
         query_vector_list = query_vector_np.flatten().tolist()
 
-        raw_chunks, graph_data = await asyncio.gather(
-            retrieve_similar_chunks_async(pool, active_user_id, query_vector_list),
-            retrieve_relevant_graph_async(pool, active_user_id, query_vector_list)
-        )
+        raw_chunks, graph_data = await retrieve_context(pool, active_user_id, user_query, query_vector_list)
 
         # Do all string building and prompt parsing safely inside the try block
         # so any exceptions return a proper 500 status before response headers are sent
-        retrieved_context = format_context_blocks(raw_chunks) if raw_chunks else ""
+        retrieved_context, raw_chunks = format_context_blocks(raw_chunks)
         rag_prompt = build_rag_prompt(user_query=user_query, retrieved_context=retrieved_context, graph_data=graph_data) if (raw_chunks or graph_data.get("nodes")) else ""
 
         async def sse_event_generator():

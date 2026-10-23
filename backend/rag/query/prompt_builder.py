@@ -1,4 +1,5 @@
 import re
+from core.config import GRAPH_CONTEXT_MAX_CHARS
 
 def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict = None) -> list[dict[str, str]]:
     """
@@ -36,6 +37,8 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
             # Format: (Source: Source Desc) --[PREDICATE (Relation Description)]--> (Target: Target Desc)
             relation = f"{link['predicate']} ({link['description']})" if link.get("description") else link["predicate"]
             line = f"({source_text}) --[{relation}]--> ({target_text})"
+            if sum(len(l) + 1 for l in graph_lines) + len(line) > GRAPH_CONTEXT_MAX_CHARS:
+                break  # edges arrive ranked best-first, so the tail is what gets dropped
             graph_lines.append(line)
             
         if graph_lines:

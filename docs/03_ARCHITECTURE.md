@@ -108,7 +108,7 @@ Thin routers; all protected routes depend on `get_current_user` and `get_db`. CP
 Generator-based to bound memory: page → clean → chunk → payload `{text, metadata{document_id, file_name, chunk_index, page_number}}` → batches of 32 → embed → `executemany` insert.
 
 ### 4.4 Query pipeline (`rag/query`, `rag/vector`)
-Embed query → **dual-track retrieval in parallel** (`asyncio.gather`): (A) chunk HNSW search, (B) graph seed search + edge expansion → format context (≤4,000 chars) → build messages → provider-specific streaming generator.
+Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::retrieve_context`, shared by `/query` and `/query/stream`): (A) top-3 chunk HNSW search, (B) `rag/graph/search.py`: seeds (name match + embedding) → ranked 1-hop edges → up to 2 graph-found chunks via `chunk_entity_junction` / `relationship_mentions` → `[Chunk N]`-labelled context (≤6,000 chars, graph ≤1,800) → build messages → provider-specific streaming generator. Set `GRAPH_LOCAL_EXPANSION=false` to fall back to the pre-G4 path. Evaluation: `backend/eval_graph.py` (questions in `backend/eval/`).
 
 ### 4.5 Graph RAG (`rag/graph`)
 | Module | Role | Trigger |

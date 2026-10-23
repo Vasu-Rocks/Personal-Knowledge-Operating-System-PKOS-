@@ -60,7 +60,7 @@ async def retrieve_similar_chunks_async(pool: asyncpg.Pool, user_id: str, query_
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT d.filename, dc.page_number, dc.text_content, (dc.embedding <=> $1) AS distance
+            SELECT dc.chunk_id, d.filename, dc.page_number, dc.text_content, (dc.embedding <=> $1) AS distance
             FROM document_chunks dc
             JOIN documents d ON dc.doc_id = d.doc_id
             WHERE d.user_id = $2 AND (dc.embedding <=> $1) < $3
@@ -72,6 +72,7 @@ async def retrieve_similar_chunks_async(pool: asyncpg.Pool, user_id: str, query_
         
         return [
             {
+                "chunk_id": row["chunk_id"],
                 "filename": row["filename"],
                 "page": row["page_number"],
                 "text": row["text_content"],

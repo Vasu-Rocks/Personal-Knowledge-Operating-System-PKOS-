@@ -1,0 +1,120 @@
+"""
+G4/G6 evaluation: vector-only retrieval vs graph-expanded retrieval on a fixed question set.
+
+  python eval_graph.py                       # retrieval metrics + generated answers
+  python eval_graph.py --no-answers          # retrieval metrics only (fast, no LLM)
+  python eval_graph.py --questions eval/questions_intro_ml.json --out eval/results
+
+Metrics (rough, keyword-based, so read the saved answers too):
+  chunk coverage  - share of the question's key facts (keywords) present in the chunks sent to the LLM
+  answer coverage - share of key facts present in the generated answer
+"""
+import argparse
+import asyncio
+import io
+import json
+import os
+import sys
+import time
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+from starlette.concurrency import run_in_threadpool
+
+from database.postgres_core import init_db_pool
+from rag.query.generator import generate_rag_response
+from rag.query.prompt_builder import build_rag_prompt
+from rag.query.retrieval import retrieve_context
+from rag.query.retriever import format_context_blocks
+from rag.vector.embedder import embed_query
+
+# (graph expansion on/off, vector top-k). "vector5" is the control: same number of chunks as "graph", no graph.
+MODES = {"vector": (False, 3), "vector5": (False, 5), "graph": (True, 3)}
+
+
+def coverage(keywords: list[str], text: str) -> float:
+    text = text.lower()
+    return sum(1 for k in keywords if k.lower() in text) / len(keywords)
+
+
+async def run_mode(pool, user_id, question, expansion, vector_k, answers):
+    query_vector = (await run_in_threadpool(embed_query, question)).flatten().tolist()
+    chunks, graph = await retrieve_context(pool, user_id, question, query_vector, expansion=expansion, vector_k=vector_k)
+    context, used = format_context_blocks(chunks)
+    result = {
+        "chunks": [{"via": c["via"], "page": c["page"], "distance": round(c["distance"], 3), "text": c["text"]} for c in used],
+        "graph_nodes": len(graph.get("nodes", [])),
+        "graph_links": len(graph.get("links", [])),
+        "context_chars": len(context),
+    }
+    if answers:
+        prompt = build_rag_prompt(question, context, graph)
+        start = time.perf_counter()
+        result["answer"] = await run_in_threadpool(generate_rag_response, prompt)
+        result["answer_seconds"] = round(time.perf_counter() - start, 1)
+    return result
+
+
+async def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--questions", default="eval/questions_intro_ml.json")
+    parser.add_argument("--out", default="eval/results")
+    parser.add_argument("--no-answers", action="store_true")
+    parser.add_argument("--user", help="user_id (default: owner of the first document)")
+    args = parser.parse_args()
+
+    questions = json.load(open(args.questions, encoding="utf-8"))
+    pool = await init_db_pool()
+    try:
+        async with pool.acquire() as conn:
+            user_id = args.user or str(await conn.fetchval("SELECT user_id FROM documents ORDER BY created_at LIMIT 1"))
+
+        rows = []
+        for q in questions:
+            row = {"id": q["id"], "type": q["type"], "q": q["q"], "keywords": q["keywords"]}
+            for mode, (expansion, vector_k) in MODES.items():
+                res = await run_mode(pool, user_id, q["q"], expansion, vector_k, not args.no_answers)
+                res["chunk_coverage"] = coverage(q["keywords"], " ".join(c["text"] for c in res["chunks"]))
+                if "answer" in res:
+                    res["answer_coverage"] = coverage(q["keywords"], res["answer"])
+                row[mode] = res
+            rows.append(row)
+            print(f"{q['id']:3} {q['type']:6} chunk coverage " + " ".join(f"{m}={row[m]['chunk_coverage']:.2f}" for m in MODES)
+                  + (" | answer coverage " + " ".join(f"{m}={row[m]['answer_coverage']:.2f}" for m in MODES) if not args.no_answers else "")
+                  + f" | graph chunks used: {sum(1 for c in row['graph']['chunks'] if c['via'] == 'graph')}", flush=True)
+
+        print("\n== Mean by question type (vector -> graph) ==")
+        for t in ["single", "multi", "broad", "all"]:
+            sel = [r for r in rows if t == "all" or r["type"] == t]
+            if not sel:
+                continue
+            mean = lambda mode, key: sum(r[mode][key] for r in sel) / len(sel)
+            line = f"{t:6} n={len(sel):2} chunk coverage " + " ".join(f"{m}={mean(m, 'chunk_coverage'):.2f}" for m in MODES)
+            if not args.no_answers:
+                line += " | answer coverage " + " ".join(f"{m}={mean(m, 'answer_coverage'):.2f}" for m in MODES)
+            print(line)
+
+        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        json_path, md_path = f"{args.out}_{stamp}.json", f"{args.out}_{stamp}.md"
+        json.dump(rows, open(json_path, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write("# Vector-only vs graph-expanded retrieval\n\n")
+            for r in rows:
+                f.write(f"## {r['id']} ({r['type']}): {r['q']}\n\nKey facts: {', '.join(r['keywords'])}\n\n")
+                for mode in MODES:
+                    m = r[mode]
+                    f.write(f"### {mode} - chunk coverage {m['chunk_coverage']:.2f}"
+                            + (f", answer coverage {m['answer_coverage']:.2f}" if "answer" in m else "")
+                            + f" ({m['graph_nodes']} graph nodes, {m['graph_links']} links, {m['context_chars']} context chars)\n\n")
+                    f.write("Sources: " + "; ".join(f"p{c['page']} {c['via']} d={c['distance']}" for c in m["chunks"]) + "\n\n")
+                    if "answer" in m:
+                        f.write(m["answer"].strip() + "\n\n")
+        print(f"\nSaved {md_path} and {json_path}")
+    finally:
+        await pool.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

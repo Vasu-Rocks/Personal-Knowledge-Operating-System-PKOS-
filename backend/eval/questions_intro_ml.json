@@ -1,0 +1,22 @@
+[
+  {"id": "s1", "type": "single", "q": "What does the train_test_split function do?", "keywords": ["train_test_split", "random"]},
+  {"id": "s2", "type": "single", "q": "What is overfitting?", "keywords": ["overfitting", "too closely"]},
+  {"id": "s3", "type": "single", "q": "What does the StandardScaler do to the data?", "keywords": ["standardscaler", "mean", "variance"]},
+  {"id": "s4", "type": "single", "q": "What is the param_grid used for in GridSearchCV?", "keywords": ["param_grid", "dictionary"]},
+  {"id": "s5", "type": "single", "q": "What is a confusion matrix?", "keywords": ["confusion matrix", "false positives"]},
+  {"id": "s6", "type": "single", "q": "What does DBSCAN stand for?", "keywords": ["dbscan", "density"]},
+
+  {"id": "m1", "type": "multi", "q": "What is the difference between Ridge and Lasso regression?", "keywords": ["l1 norm", "l2 norm", "lasso", "ridge"]},
+  {"id": "m2", "type": "multi", "q": "How is GridSearchCV related to cross-validation?", "keywords": ["grid search", "cross-validation", "param_grid"]},
+  {"id": "m3", "type": "multi", "q": "How does a Pipeline help avoid information leakage when using GridSearchCV?", "keywords": ["pipeline", "information leak", "gridsearchcv"]},
+  {"id": "m4", "type": "multi", "q": "How do random forests differ from gradient boosted regression trees?", "keywords": ["random forest", "gradient boosting", "learning_rate"]},
+  {"id": "m5", "type": "multi", "q": "How are precision, recall and the f-score related?", "keywords": ["precision", "recall", "f-score"]},
+  {"id": "m6", "type": "multi", "q": "What do k-means and DBSCAN have in common and how do they differ?", "keywords": ["k-means", "dbscan", "cluster centers", "core samples"]},
+  {"id": "m7", "type": "multi", "q": "How does PCA relate to dimensionality reduction and what do the principal components represent?", "keywords": ["principal component", "variance", "dimensionality reduction"]},
+  {"id": "m8", "type": "multi", "q": "How does the CountVectorizer differ from the TfidfVectorizer?", "keywords": ["countvectorizer", "tfidfvectorizer", "term frequency"]},
+  {"id": "m9", "type": "multi", "q": "How do the MinMaxScaler and StandardScaler differ?", "keywords": ["minmaxscaler", "standardscaler", "between 0 and 1"]},
+
+  {"id": "b1", "type": "broad", "q": "Give an overview of the supervised learning algorithms covered in the book.", "keywords": ["nearest neighbors", "linear models", "decision trees", "support vector machines"]},
+  {"id": "b2", "type": "broad", "q": "What techniques does the book describe for evaluating and improving models?", "keywords": ["cross-validation", "grid search", "precision", "receiver operating"]},
+  {"id": "b3", "type": "broad", "q": "What kinds of unsupervised learning does the book cover?", "keywords": ["clustering", "decomposition", "manifold", "pca"]}
+]

@@ -1,27 +1,26 @@
-# Deep Logic Math Constants
-MAX_CONTEXT_CHARS = 4000 # Strict hardware cutoff for 4GB VRAM prompting.
+from core.config import CONTEXT_MAX_CHARS
 
-def format_context_blocks(chunks: list[dict]) -> str:
+
+def format_context_blocks(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS) -> tuple[str, list[dict]]:
     """
     Sub-Module 3.2: Context Assembly (String Formatter)
-    Packages the raw dictionaries returned natively from PostgreSQL into 
-    a highly structured local string explicitly designed to prevent 'Lost in the Middle' hallucinations!
+    Labels each chunk "[Chunk N]" to match the citation format the prompt asks for, and stops at the character
+    budget (4GB VRAM). Returns (context_text, chunks_used): N is the 1-based index into chunks_used, so callers
+    must send chunks_used, not the original list, as sources.
     """
     if not chunks:
-        return "No relevant documents found in your database."
-        
-    assembled_context = ""
-    
-    for rank, data in enumerate(chunks):
-        # Format the localized string with rigid attribution references
-        block = f"--- Result {rank + 1} ---\n"
-        block += f"Source: {data['filename']} (Page {data['page']})\n"
-        block += f"Content: {data['text']}\n\n"
-        
-        # Hardware Protection Override
-        if len(assembled_context) + len(block) > MAX_CONTEXT_CHARS:
-            break 
-            
-        assembled_context += block
-        
-    return assembled_context.strip()
+        return "", []
+
+    blocks, used, total = [], [], 0
+    for chunk in chunks:
+        origin = " (found via the knowledge graph)" if chunk.get("via") == "graph" else ""
+        block = f"[Chunk {len(used) + 1}] Source: {chunk['filename']} (Page {chunk['page']}){origin}\n{chunk['text']}"
+        if total + len(block) > max_chars:
+            if not used:
+                block = block[:max_chars]  # a single oversized chunk is truncated, never dropped
+            else:
+                break
+        blocks.append(block)
+        used.append(chunk)
+        total += len(block) + 2
+    return "\n\n".join(blocks), used
