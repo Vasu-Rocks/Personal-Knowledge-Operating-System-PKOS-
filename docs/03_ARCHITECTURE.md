@@ -124,6 +124,7 @@ Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::r
 | `cluster.py` | Loads the user's edges into networkx, Louvain (seed 42), syncs level-0 communities (>= 3 members), keeping unchanged ones with their summaries; writes `community_members` | `communities.py` / `POST /graph/cluster` |
 | `summarizer.py` | Takes the user's communities with `summary IS NULL`, builds context from the top entities/edges by degree/weight (<= 3,500 chars), LLM JSON `{title, summary}` via `/api/chat`, embeds, updates; stops (leaving the rest queued) if the LLM is offline | `communities.py` / `POST /graph/summarize` |
 | `communities.py` | `rebuild_communities()`: cluster then summarise | worker `_maintain()`, API |
+| `connections.py` | `lookup_term()` (where a word appears, per book) and `find_connection()` (shortest chains between two words with per-book support) | `GET /graph/lookup`, `GET /graph/connection` |
 
 Communities are **not yet used** at query time.
 
@@ -167,6 +168,8 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 | POST | `/graph/cluster` | ✔ | – | `{status, communities_detected, communities_kept, communities_queued, communities_replaced}` | ✅ |
 | POST | `/graph/rebuild` | ✔ | – | `{status:"queued"}` (flags dirty, wakes worker) | ✅ |
 | GET | `/graph/status` | ✔ | – | counts incl. `pending_summaries`, `stale_communities`, `rebuild_queued`, `active_jobs` | ✅ |
+| GET | `/graph/lookup?term=` | ✔ | – | `{term, matches[], books[{book, mentions, pages, neighbors[], chunks[]}]}` | ✅ |
+| GET | `/graph/connection?a=&b=` | ✔ | – | `{found, hops, steps[], links[], books_on_path, crosses_books, bridge_concepts, strong_links, weak, alternatives[]}` or `{found:false, reason}` | ✅ |
 | POST | `/graph/summarize` | ✔ | – | `{message}` (worker started) | ✅ caller's communities only |
 | POST | `/graph/jobs/{doc_id}/start` | ✔ | – | `{status:"PENDING"}` or 409 | ✅ |
 | POST | `/graph/jobs/{doc_id}/pause` | ✔ | – | `{status:"PAUSED"}` or 409 | ✅ |

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 import asyncpg
 import uuid
 from api.dependencies import get_current_user, get_db
 from rag.graph.cluster import run_louvain_clustering
+from rag.graph.connections import find_connection, lookup_term
 from rag.graph.summarizer import run_community_summarizer
 
 router = APIRouter()
@@ -114,3 +115,30 @@ async def graph_status(
               (SELECT COUNT(*) FROM graph_jobs WHERE user_id = $1 AND status IN ('PENDING', 'PROCESSING')) AS active_jobs
         """, uid)
     return dict(row)
+
+
+@router.get("/graph/lookup")
+async def lookup_word(
+    term: str = Query(..., min_length=1, max_length=100),
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """Where a word appears across the caller's documents (per book: pages, linked concepts, passages)."""
+    term = term.strip()
+    if not term:
+        raise HTTPException(status_code=400, detail="Term cannot be empty.")
+    return await lookup_term(pool, current_user["user_id"], term)
+
+
+@router.get("/graph/connection")
+async def connect_words(
+    a: str = Query(..., min_length=1, max_length=100),
+    b: str = Query(..., min_length=1, max_length=100),
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """The shortest chains of relationships linking two words, and the books that support each link."""
+    a, b = a.strip(), b.strip()
+    if not a or not b:
+        raise HTTPException(status_code=400, detail="Both words are required.")
+    return await find_connection(pool, current_user["user_id"], a, b)

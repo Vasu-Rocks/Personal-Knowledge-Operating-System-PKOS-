@@ -108,6 +108,9 @@ Flex row: `Vault (250 px default) | 4 px handle | Chat (flex, min 300 px) | 4 px
 
 **Target:** per-message graph; render seed-only graphs (nodes without links); show "Relevance" as `1 − distance` with a small bar in addition to raw distance; legend for node categories; button "Expand graph" (post-MVP).
 
+### 4.7 Connections modal ✅
+Opened from the vault footer ("Connections"). Two inputs: one word shows, per book, how many passages and which pages mention it, the concepts it is linked to in that book and prose excerpts; two words show the chain of concepts linking them, with a coloured badge per book on every concept and link, passage counts, an evidence line ("N of M links appear in more than one passage"), a note when a typed word matched a differently spelled concept, an amber warning for weak chains and up to two alternative routes. Empty and no-match states have plain-language messages. Verified in a browser with real API responses; not yet checked on narrow screens.
+
 ### 4.6 Inference Settings modal 🟡
 Fixed overlay (black 60% + 8 px blur), 450 px card: header with close X; segmented control (Local Ollama | Cloud LLM); Ollama → model text input; Cloud → OpenAI key (password input) + note "Stored exclusively on your device…"; footer Save button → "Saved" ✓ → auto-close after 1 s.
 
