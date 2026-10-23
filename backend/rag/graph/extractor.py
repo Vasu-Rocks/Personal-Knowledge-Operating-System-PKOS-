@@ -2,7 +2,7 @@ import httpx
 import json
 import logging
 from core.config import OLLAMA_CHAT_URL, get_ollama_model
-from rag.graph.reconciler import canonicalize
+from rag.graph.vocab import PREDICATES, canonicalize, squash
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ GRAPH_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "source": {"type": "string"},
-                    "predicate": {"type": "string"},
+                    "predicate": {"type": "string", "enum": PREDICATES},
                     "target": {"type": "string"}
                 },
                 "required": ["source", "predicate", "target"]
@@ -49,8 +49,11 @@ SYSTEM_PROMPT = (
     "List the 3-12 most important entities (" + ", ".join(ENTITY_CATEGORIES) + ") "
     "with a one-sentence description taken from the text, then the relationships between those entities. "
     "Every relationship's source and target must be an entity name from your entities list. "
-    "Predicates are short UPPER_SNAKE_CASE verbs like USES, PART_OF, CAUSES, DEFINES. "
-    "Use only facts stated in the text. Ignore page headers, licences, URLs and citations.\n"
+    "Choose each predicate from the allowed list: USES means source uses target, USED_FOR means source is used "
+    "for target, CONTAINS means source contains target. "
+    "Use only facts stated in the text. Ignore page headers, licences, URLs, citations, figure and chapter "
+    "references, and variable names from code listings (such as X_train, y_test, plt); extract named "
+    "algorithms, classes, functions and concepts.\n"
     "Example output:\n"
     '{"entities":[{"name":"FastAPI","category":"TECHNOLOGY","description":"A Python web framework."},'
     '{"name":"Starlette","category":"TECHNOLOGY","description":"An ASGI toolkit."}],'
@@ -86,7 +89,8 @@ def ground_extraction(data: dict, *texts: str) -> dict:
     Drops entities and relationship endpoints whose name never appears in the source text.
     Small models parrot the prompt example or invent entities when a chunk has little content.
     """
-    haystack = " ".join(" ".join(t.lower().split()) for t in texts if t)
+    # Compared in squashed form so 'tf-idf' in the text grounds 'TF–IDF' from the model.
+    haystack = " ".join(squash(t) for t in texts if t)
     entities = [
         e for e in data.get("entities", [])
         if isinstance(e, dict) and canonicalize(e.get("name")) and canonicalize(e["name"]) in haystack

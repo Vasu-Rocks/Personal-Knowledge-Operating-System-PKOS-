@@ -56,6 +56,8 @@ pkos_v2/
 │  ├─ requirements.txt
 │  ├─ backfill.py              One-off: embed entities whose embedding IS NULL
 │  ├─ graph_baseline.py        Read-only graph stats; `--sample N` times extraction on N random chunks
+│  ├─ graph_maintenance.py     Dry-run/--apply clean-up: noise removal, duplicate merge, predicate normalisation
+│  ├─ eval_graph.py            vector vs graph retrieval/answer comparison (questions in eval/)
 │  ├─ core/config.py           OLLAMA_BASE_URL / OLLAMA_GENERATE_URL / get_ollama_model()
 │  ├─ test_distance.py         Manual script: print nearest chunks/entities for a fixed query
 │  ├─ api/
@@ -115,6 +117,8 @@ Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::r
 |---|---|---|
 | `extractor.py` | `extract_chunk()`: one bounded-schema `/api/chat` call + grounding filter, with 150-char sliding context | called by the worker |
 | `worker.py` | `GraphWorker`: single asyncio task; claims `graph_jobs` (`SKIP LOCKED`), per-chunk checkpoint, pause/delete aware, `FAILED` + 30 s back-off on Ollama errors, re-queues interrupted jobs at startup | started in `lifespan`; woken by upload / `/start` |
+| `vocab.py` | Predicate vocabulary + normaliser (with edge-direction flips), `canonicalize`/`squash` entity keys, `is_noise_entity` | reconciler, extractor, search, maintenance |
+| `search.py` | G4 local search: seed entities (name + embedding), ranked 1-hop edges, graph-found chunks | `rag/query/retrieval.py` |
 | `reconciler.py` | Embeds entities, upserts nodes, junction rows, and edges (weight += 1) in one transaction per chunk | Called by extractor |
 | `cluster.py` | Loads user's edges into networkx, Louvain, replaces level-0 communities (≥2 members) with `summary=NULL` | `POST /graph/cluster` |
 | `summarizer.py` | Loop: take any community with `summary IS NULL`, build entity+edge context (≤6,000 chars), LLM JSON `{title, summary}`, embed, update | `POST /graph/summarize` (background) |

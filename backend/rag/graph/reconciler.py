@@ -4,22 +4,10 @@ import logging
 from typing import Dict, Any
 from starlette.concurrency import run_in_threadpool
 from rag.vector.embedder import embed_text_batch
+from rag.graph.vocab import canonicalize, normalize_predicate, is_noise_entity  # canonicalize re-exported for callers
 
 logger = logging.getLogger(__name__)
 
-MAX_ENTITY_NAME_LEN = 100
-
-
-def canonicalize(name) -> str:
-    """Lower-cased, whitespace-collapsed key used to merge entities. Empty string means 'unusable'."""
-    if not isinstance(name, str):
-        return ""
-    key = " ".join(name.lower().split())
-    # Drops pure-symbol noise such as '++' or '-' that small models emit for code and layout fragments.
-    # Single letters stay: 'C' and 'R' are real entities.
-    if len(key) > MAX_ENTITY_NAME_LEN or not any(c.isalnum() for c in key):
-        return ""
-    return key
 
 async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, json_data: Dict[str, Any]):
     """
@@ -50,7 +38,7 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
             pending: dict[str, dict] = {}
             for entity in json_data.get("entities", []):
                 key = canonicalize(entity.get("name"))
-                if key and key not in pending:
+                if key and key not in pending and not is_noise_entity(entity["name"]):
                     pending[key] = {
                         "name": " ".join(entity["name"].split()),
                         "category": (entity.get("category") or "OTHER").upper(),
@@ -59,7 +47,7 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
             for rel in json_data.get("relationships", []):
                 for endpoint in (rel.get("source"), rel.get("target")):
                     key = canonicalize(endpoint)
-                    if key and key not in pending:
+                    if key and key not in pending and not is_noise_entity(endpoint):
                         pending[key] = {"name": " ".join(endpoint.split()), "category": "OTHER", "description": ""}
 
             keys = list(pending)
@@ -113,7 +101,9 @@ async def reconcile_graph_chunk(pool: asyncpg.Pool, doc_id: str, chunk_id: int, 
                     logger.debug(f"Discarding self-loop relationship on {source_canonical}")
                     continue
                     
-                predicate = (rel.get("predicate") or "RELATED_TO").upper().strip().replace(" ", "_")[:100]
+                predicate, flip = normalize_predicate(rel.get("predicate"))
+                if flip:
+                    source_uuid, target_uuid = target_uuid, source_uuid
                 description = rel.get("mention_snippet", "")
                 
                 # Edge UPSERT; a dummy update forces RETURNING, and an existing description is kept.
