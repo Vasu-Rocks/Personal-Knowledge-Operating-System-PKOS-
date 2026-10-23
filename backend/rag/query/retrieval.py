@@ -37,7 +37,8 @@ async def retrieve_context(pool: asyncpg.Pool, user_id: str, query: str, query_v
     communities = []
     if global_search and is_broad_query(query):
         communities = await retrieve_community_chunks(
-            pool, user_id, query_vector, config.GRAPH_COMMUNITIES, config.COMMUNITY_MAX_DISTANCE)
+            pool, user_id, query_vector, config.GRAPH_COMMUNITIES, config.COMMUNITY_MAX_DISTANCE,
+            min_members=config.COMMUNITY_MIN_MEMBERS, strong_distance=config.COMMUNITY_STRONG_DISTANCE)
         logger.info(f"Broad question routed to global search: {len(communities)} community summaries")
 
     # Both tracks run concurrently, so ask the graph for a few spare chunks and drop duplicates afterwards.

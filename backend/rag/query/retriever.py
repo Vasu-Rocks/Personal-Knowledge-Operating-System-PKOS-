@@ -1,5 +1,8 @@
 from core.config import CONTEXT_MAX_CHARS
 
+# Appears in the header of community-summary blocks; the prompt builder looks for it to adjust its rules.
+COMMUNITY_MARKER = "generated overview of a group of related concepts"
+
 
 def format_context_blocks(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS) -> tuple[str, list[dict]]:
     """
@@ -14,7 +17,7 @@ def format_context_blocks(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS
     blocks, used, total = [], [], 0
     for chunk in chunks:
         if chunk.get("via") == "community":
-            header = f"[Chunk {len(used) + 1}] {chunk['filename']} (generated overview of a group of related concepts)"
+            header = f"[Chunk {len(used) + 1}] {chunk['filename']} ({COMMUNITY_MARKER})"
         else:
             origin = " (found via the knowledge graph)" if chunk.get("via") == "graph" else ""
             header = f"[Chunk {len(used) + 1}] Source: {chunk['filename']} (Page {chunk['page']}){origin}"

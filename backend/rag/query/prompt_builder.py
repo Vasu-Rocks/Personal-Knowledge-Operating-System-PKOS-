@@ -1,5 +1,6 @@
 import re
 from core.config import GRAPH_CONTEXT_MAX_CHARS
+from rag.query.retriever import COMMUNITY_MARKER
 
 def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict = None) -> list[dict[str, str]]:
     """
@@ -60,6 +61,15 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
             {"role": "user", "content": f"System Request: The user asked '{user_query}'. Politely inform them that there are no documents or graph connections in the database containing this answer. Format your response clearly in Markdown."}
         ]
 
+    # Community summaries (global search) are generated overviews of whole topic areas. For overview questions the
+    # answer is a synthesis of them, so the strict "exact answer" refusal rule would make the model refuse wrongly.
+    overview_rule = ""
+    if COMMUNITY_MARKER in retrieved_context:
+        overview_rule = (
+            "5. Blocks marked \"generated overview of a group of related concepts\" are valid evidence. For overview or "
+            "theme questions, combine them (and any other blocks) into a short structured answer and cite each one.\n"
+        )
+
     # 2. Complete Structurally Bounded Generator Template
     system_content = f"""You are the strict, analytical AI assistant for the PKOS (Personal Knowledge Operating System).
 Your core directive is to answer the user's question ONLY using the provided CONTEXT.
@@ -69,7 +79,7 @@ CRITICAL INSTRUCTIONS:
 2. Do NOT use outside knowledge. Do NOT make up information.
 3. You MUST cite your claims using the identifiers provided, for example: [Chunk 1] or [Graph Entity: FastAPI].
 4. Format your answer thoughtfully using Markdown, placing citations in italics.
-
+{overview_rule}
 ========== START CONTEXT ==========
 {retrieved_context}
 {graph_context}

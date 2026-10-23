@@ -45,7 +45,7 @@ async def run_mode(pool, user_id, question, expansion, vector_k, global_search, 
                                           global_search=global_search)
     context, used = format_context_blocks(chunks)
     result = {
-        "chunks": [{"via": c["via"], "page": c["page"], "distance": round(c["distance"], 3), "text": c["text"]} for c in used],
+        "chunks": [{"via": c["via"], "filename": c["filename"], "page": c["page"], "distance": round(c["distance"], 3), "text": c["text"]} for c in used],
         "graph_nodes": len(graph.get("nodes", [])),
         "graph_links": len(graph.get("links", [])),
         "context_chars": len(context),
@@ -63,10 +63,13 @@ async def main():
     parser.add_argument("--questions", default="eval/questions_intro_ml.json")
     parser.add_argument("--out", default="eval/results")
     parser.add_argument("--no-answers", action="store_true")
+    parser.add_argument("--ids", help="comma-separated question ids to run, e.g. b1,b2")
     parser.add_argument("--user", help="user_id (default: owner of the first document)")
     args = parser.parse_args()
 
     questions = json.load(open(args.questions, encoding="utf-8"))
+    if args.ids:
+        questions = [q for q in questions if q["id"] in args.ids.split(",")]
     pool = await init_db_pool()
     try:
         async with pool.acquire() as conn:
@@ -81,22 +84,30 @@ async def main():
             for mode, (expansion, vector_k, global_search) in MODES.items():
                 res = await run_mode(pool, user_id, q["q"], expansion, vector_k, global_search, not args.no_answers)
                 res["chunk_coverage"] = coverage(q["keywords"], " ".join(c["text"] for c in res["chunks"]))
+                # Cross-document metric: share of the books the question needs that contribute a retrieved chunk.
+                if q.get("docs"):
+                    files = [c["filename"] for c in res["chunks"]]
+                    res["book_coverage"] = sum(1 for d in q["docs"] if any(f.startswith(d) for f in files)) / len(q["docs"])
+                else:
+                    res["book_coverage"] = 1.0
                 if "answer" in res:
                     res["answer_coverage"] = coverage(q["keywords"], res["answer"])
                 row[mode] = res
             rows.append(row)
             print(f"{q['id']:3} {q['type']:6} chunk coverage " + " ".join(f"{m}={row[m]['chunk_coverage']:.2f}" for m in MODES)
+                  + " | book coverage " + " ".join(f"{m}={row[m]['book_coverage']:.2f}" for m in MODES)
                   + (" | answer coverage " + " ".join(f"{m}={row[m]['answer_coverage']:.2f}" for m in MODES) if not args.no_answers else "")
                   + f" | graph chunks: {sum(1 for c in row['graph']['chunks'] if c['via'] == 'graph')}"
                   + f" | community summaries (global): {sum(1 for c in row['global']['chunks'] if c['via'] == 'community')}", flush=True)
 
         print("\n== Mean by question type (vector -> graph) ==")
-        for t in ["single", "multi", "broad", "all"]:
+        for t in ["single", "multi", "cross", "broad", "all"]:
             sel = [r for r in rows if t == "all" or r["type"] == t]
             if not sel:
                 continue
             mean = lambda mode, key: sum(r[mode][key] for r in sel) / len(sel)
             line = f"{t:6} n={len(sel):2} chunk coverage " + " ".join(f"{m}={mean(m, 'chunk_coverage'):.2f}" for m in MODES)
+            line += " | book coverage " + " ".join(f"{m}={mean(m, 'book_coverage'):.2f}" for m in MODES)
             if not args.no_answers:
                 line += " | answer coverage " + " ".join(f"{m}={mean(m, 'answer_coverage'):.2f}" for m in MODES)
             print(line)

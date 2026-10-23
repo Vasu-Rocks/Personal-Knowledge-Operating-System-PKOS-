@@ -6,7 +6,7 @@ import re
 _BROAD_PATTERNS = [
     r"\b(overview|summar(y|ise|ize|ising|izing)|big picture|outline)\b",
     r"\b(main|key|major|central|core|primary)\s+(topics?|themes?|ideas?|points?|concepts?|takeaways?|subjects?|areas?)\b",
-    r"\bwhat\s+(is|are)\s+(this|the|these|my|those)\s+(book|document|documents|paper|papers|notes|collection|files?|material)\s+(about|cover|covers|contain|contains)\b",
+    r"\bwhat\s+(is|are)\s+(this|the|these|my|those)\s+(book|document|documents|paper|papers|notes|collection|files?|material)(\s+of\s+\w+)?\s+(about|cover|covers|contain|contains)\b",
     r"\bwhat\s+(topics?|themes?|subjects?|areas?|kinds?|types?|sorts?)\b.*\b(cover|covers|covered|discuss|discusses|discussed|describe|describes|described|include|includes|included|explain|explains|explained|contain|contains)\b",
     r"\b(techniques|methods|algorithms|approaches|concepts|topics|models)\b.*\b(covered|described|discussed|presented|explained|mentioned)\b",
     r"\b(techniques|methods|algorithms|approaches|concepts|topics)\b.*\b(does|do)\s+(the|this|my)\s+(book|document|paper|notes|material)\b",

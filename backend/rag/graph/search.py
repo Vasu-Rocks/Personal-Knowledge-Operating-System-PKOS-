@@ -66,7 +66,8 @@ async def find_seed_entities(conn: asyncpg.Connection, user_id: uuid.UUID, query
 
 
 async def retrieve_community_chunks(pool: asyncpg.Pool, user_id: str, query_embedding: list,
-                                    limit: int, max_distance: float) -> list[dict]:
+                                    limit: int, max_distance: float, min_members: int = 1,
+                                    strong_distance: float = 0.4) -> list[dict]:
     """
     Global search: the communities whose summaries are closest to the query, shaped like chunks so they flow
     through the same context builder, citation labels and X-Ray panel (via='community').
@@ -74,12 +75,28 @@ async def retrieve_community_chunks(pool: asyncpg.Pool, user_id: str, query_embe
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT community_id, title, summary, (embedding <=> $1) AS distance
-            FROM communities
-            WHERE user_id = $2 AND summary IS NOT NULL AND embedding IS NOT NULL AND (embedding <=> $1) < $3
-            ORDER BY embedding <=> $1 ASC
+            SELECT c.community_id, c.title, c.summary, (c.embedding <=> $1) AS distance
+            FROM communities c
+            WHERE c.user_id = $2 AND c.summary IS NOT NULL AND c.embedding IS NOT NULL AND (c.embedding <=> $1) < $3
+              -- Corpus-level questions need corpus-level topics; tiny clusters (example datasets, one-off
+              -- tangents) match generic wording like "main themes" by accident.
+              AND (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.community_id) >= $5
+            ORDER BY c.embedding <=> $1 ASC
             LIMIT $4
-            """, query_embedding, uuid.UUID(user_id), max_distance, limit)
+            """, query_embedding, uuid.UUID(user_id), max_distance, limit, min_members)
+
+        # A vague corpus-level question ("main themes of all my books") has no closely matching summary. The
+        # honest answer to it is the corpus's dominant topics, i.e. its largest communities.
+        if not rows or rows[0]["distance"] > strong_distance:
+            rows = await conn.fetch(
+                """
+                SELECT c.community_id, c.title, c.summary, (c.embedding <=> $1) AS distance
+                FROM communities c
+                WHERE c.user_id = $2 AND c.summary IS NOT NULL AND c.embedding IS NOT NULL
+                  AND (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.community_id) >= $4
+                ORDER BY (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.community_id) DESC
+                LIMIT $3
+                """, query_embedding, uuid.UUID(user_id), limit, min_members)
     return [{"chunk_id": None, "filename": f"Community summary: {r['title']}", "page": "-", "text": r["summary"],
              "distance": float(r["distance"]), "via": "community"} for r in rows]
 
@@ -150,14 +167,23 @@ async def retrieve_graph_context(pool: asyncpg.Pool, user_id: str, query: str, q
                     SELECT chunk_id, COUNT(*) * 2.0 AS s
                     FROM relationship_mentions WHERE rel_id = ANY($3) GROUP BY chunk_id
                 )
-                SELECT dc.chunk_id, d.filename, dc.page_number, dc.text_content,
-                       (dc.embedding <=> $1) AS distance, SUM(cand.s) AS graph_score
-                FROM cand
-                JOIN document_chunks dc ON dc.chunk_id = cand.chunk_id
-                JOIN documents d ON d.doc_id = dc.doc_id
-                WHERE d.user_id = $4 AND (dc.embedding <=> $1) < $5 AND dc.chunk_id <> ALL($6::int[])
-                GROUP BY dc.chunk_id, d.filename, dc.page_number, dc.text_content, dc.embedding
-                ORDER BY SUM(cand.s) DESC, (dc.embedding <=> $1) ASC
+                , scored AS (
+                    SELECT dc.chunk_id, dc.doc_id, d.filename, dc.page_number, dc.text_content,
+                           (dc.embedding <=> $1) AS distance, SUM(cand.s) AS graph_score
+                    FROM cand
+                    JOIN document_chunks dc ON dc.chunk_id = cand.chunk_id
+                    JOIN documents d ON d.doc_id = dc.doc_id
+                    WHERE d.user_id = $4 AND (dc.embedding <=> $1) < $5 AND dc.chunk_id <> ALL($6::int[])
+                    GROUP BY dc.chunk_id, dc.doc_id, d.filename, dc.page_number, dc.text_content, dc.embedding
+                ), ranked AS (
+                    -- Round-robin across documents: every document's best chunk comes before any document's
+                    -- second-best, so a book that mentions the entities more often cannot crowd out the others.
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY doc_id ORDER BY graph_score DESC, distance ASC) AS doc_rank
+                    FROM scored
+                )
+                SELECT chunk_id, doc_id, filename, page_number, text_content, distance, graph_score
+                FROM ranked
+                ORDER BY doc_rank ASC, graph_score DESC, distance ASC
                 LIMIT $7
                 """, query_embedding, seed_ids, [r["rel_id"] for r in edges], uid,
                 chunk_max_distance, list(exclude_chunk_ids), extra_chunks)
@@ -171,7 +197,7 @@ async def retrieve_graph_context(pool: asyncpg.Pool, user_id: str, query: str, q
         nodes.append(node)
     links = [{"source": str(r["source_entity_id"]), "target": str(r["target_entity_id"]), "predicate": r["predicate"],
               "description": r["description"], "weight": float(r["weight"])} for r in edges]
-    chunks = [{"chunk_id": r["chunk_id"], "filename": r["filename"], "page": r["page_number"], "text": r["text_content"],
+    chunks = [{"chunk_id": r["chunk_id"], "doc_id": str(r["doc_id"]), "filename": r["filename"], "page": r["page_number"], "text": r["text_content"],
                "distance": float(r["distance"]), "via": "graph"} for r in chunk_rows]
     return {"nodes": nodes, "links": links, "chunks": chunks,
             "seeds": [{"name": s["name"], "match": s["match"], "score": round(s["score"], 3)} for s in seeds]}

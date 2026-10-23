@@ -30,3 +30,6 @@ GRAPH_CONTEXT_MAX_CHARS = int(os.getenv("GRAPH_CONTEXT_MAX_CHARS", "1800"))
 GRAPH_GLOBAL_SEARCH = _env_bool("GRAPH_GLOBAL_SEARCH", True)
 GRAPH_COMMUNITIES = int(os.getenv("GRAPH_COMMUNITIES", "3"))
 COMMUNITY_MAX_DISTANCE = float(os.getenv("COMMUNITY_MAX_DISTANCE", "0.5"))
+COMMUNITY_MIN_MEMBERS = int(os.getenv("COMMUNITY_MIN_MEMBERS", "10"))
+# Best community match worse than this => fall back to the largest communities (the corpus's main themes).
+COMMUNITY_STRONG_DISTANCE = float(os.getenv("COMMUNITY_STRONG_DISTANCE", "0.36"))

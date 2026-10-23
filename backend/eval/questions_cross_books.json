@@ -1,0 +1,20 @@
+[
+  {"id": "s1", "type": "single", "q": "What is Bayes's theorem?", "keywords": ["bayes's theorem", "conditional probability"], "docs": ["thinkbayes"]},
+  {"id": "s2", "type": "single", "q": "What is the central limit theorem?", "keywords": ["central limit theorem", "sampling distribution"], "docs": ["thinkstats2"]},
+  {"id": "s3", "type": "single", "q": "What is a hazard function in survival analysis?", "keywords": ["hazard function", "survival"], "docs": ["thinkstats2"]},
+  {"id": "s4", "type": "single", "q": "What is the Monty Hall problem?", "keywords": ["monty hall", "prior"], "docs": ["thinkbayes"]},
+
+  {"id": "c1", "type": "cross", "q": "How do confidence intervals differ from credible intervals?", "keywords": ["confidence interval", "credible interval"], "docs": ["thinkstats2", "thinkbayes"]},
+  {"id": "c2", "type": "cross", "q": "How does Bayesian estimation relate to maximum likelihood estimation?", "keywords": ["maximum likelihood", "posterior", "likelihood"], "docs": ["thinkstats2", "thinkbayes"]},
+  {"id": "c3", "type": "cross", "q": "How does hypothesis testing with p-values differ from comparing hypotheses with a Bayesian posterior?", "keywords": ["p-value", "posterior", "hypothesis"], "docs": ["thinkstats2", "thinkbayes"]},
+  {"id": "c4", "type": "cross", "q": "How do the Pmf and Cdf objects relate, and how are they used in Bayesian updating?", "keywords": ["pmf", "cdf", "posterior"], "docs": ["thinkstats2", "thinkbayes"]},
+  {"id": "c5", "type": "cross", "q": "How is the exponential distribution used in the statistics book and the Bayesian book?", "keywords": ["exponential distribution", "poisson"], "docs": ["thinkstats2", "thinkbayes"]},
+  {"id": "c6", "type": "cross", "q": "How do the statistics and Bayesian books each approach estimating an unknown quantity, such as the locomotive problem?", "keywords": ["estimation", "locomotive", "sampling distribution"], "docs": ["thinkstats2", "thinkbayes"]},
+  {"id": "c7", "type": "cross", "q": "How does linear regression in the statistics book compare with LinearRegression in scikit-learn?", "keywords": ["least squares", "coefficient of determination", "scikit-learn"], "docs": ["thinkstats2", "Introduction"]},
+  {"id": "c8", "type": "cross", "q": "How does logistic regression in the statistics book compare with the machine learning book?", "keywords": ["logistic regression", "odds", "scikit-learn"], "docs": ["thinkstats2", "Introduction"]},
+  {"id": "c9", "type": "cross", "q": "How does the Dirichlet distribution appear in Bayesian estimation and in latent Dirichlet allocation?", "keywords": ["dirichlet", "topic"], "docs": ["thinkbayes", "Introduction"]},
+  {"id": "c10", "type": "cross", "q": "How do the statistics and machine learning books assess how well a model fits the data?", "keywords": ["coefficient of determination", "cross-validation"], "docs": ["thinkstats2", "Introduction"]},
+
+  {"id": "b1", "type": "broad", "q": "Give an overview of the topics covered across my statistics, Bayesian and machine learning books.", "keywords": ["hypothesis", "regression", "clustering", "posterior"], "docs": ["thinkstats2", "thinkbayes", "Introduction"]},
+  {"id": "b2", "type": "broad", "q": "What are the main themes across all of my books?", "keywords": ["probability", "regression", "bayesian", "machine learning"], "docs": ["thinkstats2", "thinkbayes", "Introduction"]}
+]
