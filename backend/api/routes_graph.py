@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 import asyncpg
 import uuid
+from typing import Literal
+from pydantic import BaseModel
 from api.dependencies import get_current_user, get_db
 from rag.graph.cluster import run_louvain_clustering
-from rag.graph.connections import find_connection, lookup_term
+from rag.graph.analytics import decide_same_concept, list_bridges, list_same_concepts
+from rag.graph.connections import find_connection, get_evidence, lookup_term
 from rag.graph.summarizer import run_community_summarizer
 
 router = APIRouter()
@@ -142,3 +145,62 @@ async def connect_words(
     if not a or not b:
         raise HTTPException(status_code=400, detail="Both words are required.")
     return await find_connection(pool, current_user["user_id"], a, b)
+
+
+@router.get("/graph/evidence")
+async def relationship_evidence(
+    rel: str = Query(..., description="rel_id from a connection or lookup result"),
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """The passages (book, page, excerpt) a relationship was extracted from."""
+    try:
+        uuid.UUID(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid relationship id.")
+    evidence = await get_evidence(pool, current_user["user_id"], rel)
+    if evidence is None:
+        raise HTTPException(status_code=404, detail="Relationship not found.")
+    return evidence
+
+
+@router.get("/graph/same-concepts")
+async def same_concept_suggestions(
+    status: Literal["suggested", "confirmed", "rejected"] = "suggested",
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """Pairs of concepts from different documents that look like the same thing under different names."""
+    return {"links": await list_same_concepts(pool, current_user["user_id"], status)}
+
+
+class SameConceptDecision(BaseModel):
+    status: Literal["suggested", "confirmed", "rejected"]
+
+
+@router.post("/graph/same-concepts/{link_id}")
+async def decide_same_concept_link(
+    link_id: str,
+    decision: SameConceptDecision,
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """Confirm or reject a suggestion (nothing is merged; a rejected pair is never suggested again)."""
+    try:
+        uuid.UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link id.")
+    if not await decide_same_concept(pool, current_user["user_id"], link_id, decision.status):
+        raise HTTPException(status_code=404, detail="Suggestion not found.")
+    return {"link_id": link_id, "status": decision.status}
+
+
+@router.get("/graph/bridges")
+async def bridge_concepts(
+    limit: int = Query(20, ge=1, le=100),
+    category: str | None = Query(None, max_length=50),
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """Concepts shared by 2+ documents that connect the most other concepts (from precomputed entity_stats)."""
+    return {"bridges": await list_bridges(pool, current_user["user_id"], limit, category.upper() if category else None)}

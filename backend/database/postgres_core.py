@@ -288,6 +288,44 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             );
         """)
 
+        # 9f. Graph analytics per entity (K1-1), recomputed by the worker after each community rebuild.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS entity_stats (
+                entity_id UUID PRIMARY KEY REFERENCES entities(entity_id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                degree INTEGER NOT NULL,
+                strong_degree INTEGER NOT NULL,
+                pagerank DOUBLE PRECISION NOT NULL,
+                betweenness DOUBLE PRECISION NOT NULL,
+                mentions INTEGER NOT NULL,
+                doc_ids UUID[] NOT NULL,
+                book_count INTEGER NOT NULL,
+                community_id UUID REFERENCES communities(community_id) ON DELETE SET NULL,
+                is_generic BOOLEAN NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS entity_stats_user_pr_idx ON entity_stats(user_id, pagerank DESC);")
+
+        # 9g. Same-concept suggestions across documents (K1-3). Never merged automatically: the user confirms or
+        # rejects, and a rejected pair is never suggested again.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS concept_links (
+                link_id UUID PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                entity_a UUID NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
+                entity_b UUID NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
+                distance DOUBLE PRECISION NOT NULL,
+                method VARCHAR(20) NOT NULL DEFAULT 'embedding',
+                status VARCHAR(12) NOT NULL DEFAULT 'suggested',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                decided_at TIMESTAMPTZ,
+                CHECK (entity_a < entity_b),
+                CHECK (status IN ('suggested', 'confirmed', 'rejected')),
+                UNIQUE (user_id, entity_a, entity_b)
+            );
+        """)
+
         # 10. Orphan Cleanup Trigger
         await conn.execute("""
             CREATE OR REPLACE FUNCTION delete_orphan_entities()

@@ -76,6 +76,18 @@ def squash(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKC", text).lower() if c.isalnum() or c in "+#")
 
 
+# Names that link everything to everything and say nothing: kept in the graph, but discounted when ranking
+# bridges or routing paths.
+GENERIC_NAMES = {"data", "value", "values", "model", "models", "result", "results", "feature", "features", "input",
+                 "output", "example", "examples", "number", "type", "function", "method", "methods", "set", "list",
+                 "dataset", "datasets", "algorithm", "algorithms", "code", "python", "file", "files", "table"}
+
+
+def is_generic_name(name: str | None) -> bool:
+    key = squash(name or "")
+    return len(key) <= 2 or key in GENERIC_NAMES
+
+
 def canonicalize(name) -> str:
     """Key used to merge entities. Empty string means the name is unusable (not text, too long, no letters/digits)."""
     if not isinstance(name, str) or len(name) > MAX_ENTITY_NAME_LEN:

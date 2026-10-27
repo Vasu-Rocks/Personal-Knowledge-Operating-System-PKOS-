@@ -16,7 +16,7 @@ import asyncpg
 import networkx as nx
 from starlette.concurrency import run_in_threadpool
 
-from rag.graph.vocab import squash
+from rag.graph.vocab import is_generic_name as _is_generic, squash
 from rag.vector.embedder import embed_text_batch
 
 SIMILAR_MAX_DISTANCE = 0.15  # cosine distance; measured: a nonsense word never gets closer than ~0.29 to any entity
@@ -116,7 +116,7 @@ async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
 
         # What the matched entities are linked to, per book (relationship_mentions says which book supports an edge).
         edge_rows = await conn.fetch("""
-            SELECT d.filename, r.predicate, r.source_entity_id, r.target_entity_id,
+            SELECT d.filename, r.rel_id, r.predicate, r.source_entity_id, r.target_entity_id,
                    s.name AS source_name, t.name AS target_name, COUNT(*) AS support
             FROM relationships r
             JOIN relationship_mentions m ON m.rel_id = r.rel_id
@@ -125,7 +125,7 @@ async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
             JOIN entities s ON s.entity_id = r.source_entity_id
             JOIN entities t ON t.entity_id = r.target_entity_id
             WHERE r.user_id = $2 AND (r.source_entity_id = ANY($1) OR r.target_entity_id = ANY($1))
-            GROUP BY d.filename, r.predicate, r.source_entity_id, r.target_entity_id, s.name, t.name
+            GROUP BY d.filename, r.rel_id, r.predicate, r.source_entity_id, r.target_entity_id, s.name, t.name
             ORDER BY support DESC""", ids, uid)
 
     books: dict[str, dict] = {}
@@ -150,7 +150,8 @@ async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
         other = r["target_name"] if outgoing else r["source_name"]
         if other in names.values():
             continue  # a link between two spellings of the searched word is not interesting
-        b["neighbors"].append({"name": other, "predicate": r["predicate"], "direction": "out" if outgoing else "in",
+        b["neighbors"].append({"rel_id": str(r["rel_id"]), "name": other, "predicate": r["predicate"],
+                               "direction": "out" if outgoing else "in",
                                "support": r["support"]})
     for b in books.values():
         b["pages"] = sorted(b["pages"])[:12]
@@ -184,15 +185,8 @@ def _build_graph(edges, names: dict) -> nx.Graph:
     return G
 
 
-GENERIC_NODES = {"data", "value", "values", "model", "models", "result", "results", "feature", "features", "input",
-                 "output", "example", "examples", "number", "type", "function", "method", "methods", "set", "list"}
 GENERIC_PENALTY = 3.0
 MAX_ALTERNATIVES = 3
-
-
-def _is_generic(name: str) -> bool:
-    key = squash(name)
-    return len(key) <= 2 or key in GENERIC_NODES
 
 
 def _strongest_tier(cands: list[dict]) -> list[dict]:
@@ -274,7 +268,7 @@ async def find_connection(pool: asyncpg.Pool, user_id: str, term_a: str, term_b:
         links = []
         for u, v in zip(path, path[1:]):
             d = G[u][v]
-            links.append({"predicate": d["predicate"], "weight": d["weight"],
+            links.append({"rel_id": str(d["rel_id"]), "predicate": d["predicate"], "weight": d["weight"],
                           "forward": d["source"] == u,  # False: the stored edge points from the next node back to this one
                           "books": [_short(b) for b in link_books.get(d["rel_id"], [])]})
         # Books that actually support a link in the chain (a node merely appearing in a book does not count).
@@ -290,3 +284,34 @@ async def find_connection(pool: asyncpg.Pool, user_id: str, term_a: str, term_b:
 
     described = [describe(p) for p in paths]
     return {**result, "found": True, **described[0], "alternatives": described[1:]}
+
+
+async def get_evidence(pool: asyncpg.Pool, user_id: str, rel_id: str) -> dict | None:
+    """The passages a relationship was extracted from, with an excerpt around the two concept names.
+    Returns None when the relationship does not exist or belongs to another user."""
+    uid = uuid.UUID(user_id)
+    async with pool.acquire() as conn:
+        rel = await conn.fetchrow("""
+            SELECT r.rel_id, r.predicate, r.weight, s.name AS source, t.name AS target
+            FROM relationships r
+            JOIN entities s ON s.entity_id = r.source_entity_id
+            JOIN entities t ON t.entity_id = r.target_entity_id
+            WHERE r.rel_id = $1 AND r.user_id = $2""", uuid.UUID(rel_id), uid)
+        if rel is None:
+            return None
+        rows = await conn.fetch("""
+            SELECT d.filename, dc.page_number, dc.text_content
+            FROM relationship_mentions m
+            JOIN document_chunks dc ON dc.chunk_id = m.chunk_id
+            JOIN documents d ON d.doc_id = dc.doc_id
+            WHERE m.rel_id = $1 AND d.user_id = $2
+            ORDER BY d.filename, dc.page_number""", rel["rel_id"], uid)
+    needles = [rel["source"].lower(), rel["target"].lower()]
+    return {
+        "rel_id": str(rel["rel_id"]), "source": rel["source"], "predicate": rel["predicate"], "target": rel["target"],
+        "weight": float(rel["weight"]),
+        "passages": [{"book": _short(r["filename"]), "filename": r["filename"], "page": r["page_number"],
+                      "excerpt": _excerpt(r["text_content"], needles)} for r in rows],
+        # Relationships extracted before provenance existed (G1) have no recorded passages.
+        "note": None if rows else "No passages are recorded for this relationship (it predates evidence tracking).",
+    }
