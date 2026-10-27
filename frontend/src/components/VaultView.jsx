@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2, Settings, Play, Pause, AlertTriangle, Clock, Network } from 'lucide-react';
+import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2, Settings, Play, Pause, AlertTriangle, Clock, Network, Map as MapIcon } from 'lucide-react';
 import SettingsView from './SettingsView';
 import ConnectionsView from './ConnectionsView';
+import KnowledgeMapView from './KnowledgeMapView';
 
 export default function VaultView({ width = 250 }) {
   const { authFetch, logout, user } = useAuth();
@@ -12,6 +13,7 @@ export default function VaultView({ width = 250 }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const fileInputRef = useRef(null);
 
   const fetchDocuments = async () => {
@@ -282,6 +284,16 @@ export default function VaultView({ width = 250 }) {
           </div>
         )}
         <button 
+          onClick={() => setShowMap(true)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '8px', 
+            fontSize: '13px', color: 'var(--text-secondary)', width: '100%',
+            padding: '8px', borderRadius: 'var(--radius-sm)', border: '1px solid transparent'
+          }}
+        >
+          <MapIcon size={16} /> Knowledge map
+        </button>
+        <button 
           onClick={() => setShowConnections(true)}
           style={{
             display: 'flex', alignItems: 'center', gap: '8px', 
@@ -305,6 +317,7 @@ export default function VaultView({ width = 250 }) {
       
       {showSettings && <SettingsView onClose={() => setShowSettings(false)} />}
       {showConnections && <ConnectionsView onClose={() => setShowConnections(false)} />}
+      {showMap && <KnowledgeMapView onClose={() => setShowMap(false)} />}
     </div>
   );
 }

@@ -32,6 +32,12 @@ def _number_ratio(text: str) -> float:
     return sum(t.strip(".,;:()[]").isdigit() for t in tokens) / max(1, len(tokens))
 
 
+def _looks_like_index(text: str) -> bool:
+    """Index, table-of-contents or table page: many bare numbers or dotted leaders ('3.2 Plotting PMFs . . . 33')."""
+    leaders = text.count(". . .") + text.count("....")
+    return _number_ratio(text) > 0.12 or leaders >= 3
+
+
 def _excerpt(text: str, needles: list[str]) -> str:
     """A window of the passage centred on the first occurrence of any matched word."""
     flat = " ".join(text.split())
@@ -95,38 +101,34 @@ async def resolve_term(conn: asyncpg.Connection, user_id: uuid.UUID, term: str, 
     return ranked[:limit]
 
 
-async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
-    uid = uuid.UUID(user_id)
-    async with pool.acquire() as conn:
-        matches = await resolve_term(conn, uid, term)
-        if not matches:
-            return {"term": term, "matches": [], "books": []}
-        ids = [m["entity_id"] for m in matches]
-        names = {m["entity_id"]: m["name"] for m in matches}
+async def describe_per_book(conn: asyncpg.Connection, uid: uuid.UUID, matches: list[dict]) -> list[dict]:
+    """Per document: passages and pages mentioning the given entities, what they link to there, best excerpts."""
+    ids = [m["entity_id"] for m in matches]
+    names = {m["entity_id"]: m["name"] for m in matches}
 
-        # Which chunks mention the matched entities, per book (best chunks first: those mentioning several matches).
-        chunk_rows = await conn.fetch("""
-            SELECT d.filename, dc.chunk_id, dc.page_number, dc.text_content, COUNT(DISTINCT j.entity_id) AS hits
-            FROM chunk_entity_junction j
-            JOIN document_chunks dc ON dc.chunk_id = j.chunk_id
-            JOIN documents d ON d.doc_id = dc.doc_id
-            WHERE j.entity_id = ANY($1) AND d.user_id = $2
-            GROUP BY d.filename, dc.chunk_id, dc.page_number, dc.text_content
-            ORDER BY hits DESC, dc.chunk_id""", ids, uid)
+    # Which chunks mention the matched entities, per book (best chunks first: those mentioning several matches).
+    chunk_rows = await conn.fetch("""
+        SELECT d.filename, dc.chunk_id, dc.page_number, dc.text_content, COUNT(DISTINCT j.entity_id) AS hits
+        FROM chunk_entity_junction j
+        JOIN document_chunks dc ON dc.chunk_id = j.chunk_id
+        JOIN documents d ON d.doc_id = dc.doc_id
+        WHERE j.entity_id = ANY($1) AND d.user_id = $2
+        GROUP BY d.filename, dc.chunk_id, dc.page_number, dc.text_content
+        ORDER BY hits DESC, dc.chunk_id""", ids, uid)
 
-        # What the matched entities are linked to, per book (relationship_mentions says which book supports an edge).
-        edge_rows = await conn.fetch("""
-            SELECT d.filename, r.rel_id, r.predicate, r.source_entity_id, r.target_entity_id,
-                   s.name AS source_name, t.name AS target_name, COUNT(*) AS support
-            FROM relationships r
-            JOIN relationship_mentions m ON m.rel_id = r.rel_id
-            JOIN document_chunks dc ON dc.chunk_id = m.chunk_id
-            JOIN documents d ON d.doc_id = dc.doc_id
-            JOIN entities s ON s.entity_id = r.source_entity_id
-            JOIN entities t ON t.entity_id = r.target_entity_id
-            WHERE r.user_id = $2 AND (r.source_entity_id = ANY($1) OR r.target_entity_id = ANY($1))
-            GROUP BY d.filename, r.rel_id, r.predicate, r.source_entity_id, r.target_entity_id, s.name, t.name
-            ORDER BY support DESC""", ids, uid)
+    # What the matched entities are linked to, per book (relationship_mentions says which book supports an edge).
+    edge_rows = await conn.fetch("""
+        SELECT d.filename, r.rel_id, r.predicate, r.source_entity_id, r.target_entity_id,
+               s.name AS source_name, t.name AS target_name, COUNT(*) AS support
+        FROM relationships r
+        JOIN relationship_mentions m ON m.rel_id = r.rel_id
+        JOIN document_chunks dc ON dc.chunk_id = m.chunk_id
+        JOIN documents d ON d.doc_id = dc.doc_id
+        JOIN entities s ON s.entity_id = r.source_entity_id
+        JOIN entities t ON t.entity_id = r.target_entity_id
+        WHERE r.user_id = $2 AND (r.source_entity_id = ANY($1) OR r.target_entity_id = ANY($1))
+        GROUP BY d.filename, r.rel_id, r.predicate, r.source_entity_id, r.target_entity_id, s.name, t.name
+        ORDER BY support DESC""", ids, uid)
 
     books: dict[str, dict] = {}
     candidates: dict[str, list] = {}
@@ -139,7 +141,7 @@ async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
     needles = [n.lower() for n in names.values()]
     for filename, rows in candidates.items():
         # Prefer prose over index pages and tables (lots of digits), then passages naming several matched words.
-        scored = sorted(rows[:40], key=lambda r: (_number_ratio(r["text_content"]) > 0.12, -r["hits"]))
+        scored = sorted(rows[:40], key=lambda r: (_looks_like_index(r["text_content"]), -r["hits"]))
         books[filename]["chunks"] = [{"page": r["page_number"], "text": _excerpt(r["text_content"], needles)}
                                      for r in scored[:2]]
     for r in edge_rows:
@@ -155,12 +157,22 @@ async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
                                "support": r["support"]})
     for b in books.values():
         b["pages"] = sorted(b["pages"])[:12]
+    return sorted(books.values(), key=lambda b: -b["mentions"])
+
+
+async def lookup_term(pool: asyncpg.Pool, user_id: str, term: str) -> dict:
+    uid = uuid.UUID(user_id)
+    async with pool.acquire() as conn:
+        matches = await resolve_term(conn, uid, term)
+        if not matches:
+            return {"term": term, "matches": [], "books": []}
+        books = await describe_per_book(conn, uid, matches)
 
     return {
         "term": term,
         "matches": [{"name": m["name"], "category": m["category"], "description": m["description"],
                      "match": m["match"], "score": m["score"], "mentions": m["mentions"]} for m in matches],
-        "books": sorted(books.values(), key=lambda b: -b["mentions"]),
+        "books": books,
     }
 
 
@@ -314,4 +326,35 @@ async def get_evidence(pool: asyncpg.Pool, user_id: str, rel_id: str) -> dict | 
                       "excerpt": _excerpt(r["text_content"], needles)} for r in rows],
         # Relationships extracted before provenance existed (G1) have no recorded passages.
         "note": None if rows else "No passages are recorded for this relationship (it predates evidence tracking).",
+    }
+
+
+async def entity_detail(pool: asyncpg.Pool, user_id: str, entity_id: str) -> dict | None:
+    """Everything the map's side panel shows for one concept. None if it does not exist for this user."""
+    uid = uuid.UUID(user_id)
+    async with pool.acquire() as conn:
+        e = await conn.fetchrow("""
+            SELECT e.entity_id, e.name, e.category, e.description,
+                   s.mentions, s.degree, s.strong_degree, s.pagerank, s.betweenness, s.book_count,
+                   c.title AS community
+            FROM entities e
+            LEFT JOIN entity_stats s ON s.entity_id = e.entity_id
+            LEFT JOIN communities c ON c.community_id = s.community_id
+            WHERE e.entity_id = $1 AND e.user_id = $2""", uuid.UUID(entity_id), uid)
+        if e is None:
+            return None
+        books = await describe_per_book(conn, uid, [{"entity_id": e["entity_id"], "name": e["name"]}])
+        same = await conn.fetch("""
+            SELECT l.link_id, l.status, o.name
+            FROM concept_links l
+            JOIN entities o ON o.entity_id = CASE WHEN l.entity_a = $1 THEN l.entity_b ELSE l.entity_a END
+            WHERE l.user_id = $2 AND (l.entity_a = $1 OR l.entity_b = $1) AND l.status <> 'rejected'""",
+            e["entity_id"], uid)
+    return {
+        "id": str(e["entity_id"]), "name": e["name"], "category": e["category"], "description": e["description"],
+        "community": e["community"],
+        "stats": {"mentions": e["mentions"] or 0, "links": e["degree"] or 0, "strong_links": e["strong_degree"] or 0,
+                  "books": e["book_count"] or 0},
+        "books": books,
+        "same_concepts": [{"link_id": str(r["link_id"]), "status": r["status"], "name": r["name"]} for r in same],
     }

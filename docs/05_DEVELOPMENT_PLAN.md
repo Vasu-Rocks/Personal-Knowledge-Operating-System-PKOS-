@@ -163,7 +163,7 @@ Measured on the 3-book graph: 3,507 entities, ~6,060 linked pairs, one component
 | K1-2 | Evidence endpoint (passages behind a relationship); `rel_id` on connection and lookup links | ✅ |
 | K1-3 | Same-concept suggestions with confirm/reject (never auto-merged) | ✅ |
 | K1-4 | Generic-name list shared via `vocab.is_generic_name`; bridges endpoint | ✅ |
-| K2 | Knowledge map API + full-screen map: backbone (default), full (top-N by PageRank), community modes; filters by book, support, category, cross-book only; click node -> concept panel, click link -> evidence | ❌ |
+| K2 | Knowledge map API + full-screen map: backbone (default), full (top-N by PageRank), community modes; filters by book, support, category, cross-book only; click node -> concept panel, click link -> evidence | ✅ |
 | K3 | Concept view: ego graph by book, shared vs book-specific neighbours, same-concept confirm buttons | ❌ |
 | R1 | LLM evidence check per link (supported / unsupported), cached | ❌ |
 | R2 | Explain a verified chain with citations | ❌ |

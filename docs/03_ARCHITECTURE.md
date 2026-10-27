@@ -126,6 +126,7 @@ Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::r
 | `communities.py` | `rebuild_communities()`: cluster then summarise | worker `_maintain()`, API |
 | `connections.py` | `lookup_term()` (where a word appears, per book) and `find_connection()` (shortest chains between two words with per-book support) | `GET /graph/lookup`, `GET /graph/connection` |
 | `analytics.py` | `refresh_analytics()`: `entity_stats` (networkx, ~4-5 s for 3.5k entities) then same-concept suggestions; list/decide suggestions; bridges | called by `communities.rebuild_communities()` (worker), endpoints |
+| `map.py` | `build_map()`: pairs relations per concept pair, applies book/support/category/cross-book/generic/community filters, caps by PageRank; topic view aggregates links between communities (~70-250 ms, 40-700 KB) | `GET /graph/map` |
 
 Communities are **not yet used** at query time.
 
@@ -175,6 +176,8 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 | GET | `/graph/same-concepts?status=` | ✔ | – | `{links[{link_id, status, similarity, category, a{name, books}, b{name, books}}]}` | ✅ |
 | POST | `/graph/same-concepts/{link_id}` | ✔ | `{status}` | `{link_id, status}` / 404 | ✅ |
 | GET | `/graph/bridges?limit=&category=` | ✔ | – | `{bridges[{name, category, books, betweenness, pagerank, links, strong_links, mentions}]}` | ✅ |
+| GET | `/graph/map?mode=&books=&min_support=&categories=&cross_book=&hide_generic=&community=&limit=` | ✔ | – | `{mode, min_support, books[{doc_id, filename, book, selected, concepts}], nodes[], links[{source, target, support, predicates, relations[{rel_id, forward, predicate, support}], books[], cross_book}], stats}` | ✅ |
+| GET | `/graph/entity/{entity_id}` | ✔ | – | `{id, name, category, description, community, stats, books[], same_concepts[]}` | ✅ |
 | POST | `/graph/summarize` | ✔ | – | `{message}` (worker started) | ✅ caller's communities only |
 | POST | `/graph/jobs/{doc_id}/start` | ✔ | – | `{status:"PENDING"}` or 409 | ✅ |
 | POST | `/graph/jobs/{doc_id}/pause` | ✔ | – | `{status:"PAUSED"}` or 409 | ✅ |

@@ -1,20 +1,9 @@
 import React, { useState } from 'react';
 import { X, Search, Network, ArrowRight, ArrowLeft, AlertTriangle, BookOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { bookColor, shortBook } from './bookColors';
 
 const API = 'http://localhost:8000/api/v1';
-const BOOK_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6'];
-
-// Same book always gets the same colour, so a badge means the same thing in every result.
-const bookColor = (name) => {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return BOOK_COLORS[h % BOOK_COLORS.length];
-};
-const shortBook = (name) => {
-  const base = name.replace(/\.pdf$/i, '');
-  return base.length > 24 ? base.slice(0, 22) + '...' : base;
-};
 
 function BookBadge({ name }) {
   const color = bookColor(name);

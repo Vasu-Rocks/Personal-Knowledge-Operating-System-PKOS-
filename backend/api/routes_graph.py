@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from api.dependencies import get_current_user, get_db
 from rag.graph.cluster import run_louvain_clustering
 from rag.graph.analytics import decide_same_concept, list_bridges, list_same_concepts
-from rag.graph.connections import find_connection, get_evidence, lookup_term
+from rag.graph.connections import entity_detail, find_connection, get_evidence, lookup_term
+from rag.graph.map import MAX_NODES, DEFAULT_LIMIT, build_map
 from rag.graph.summarizer import run_community_summarizer
 
 router = APIRouter()
@@ -204,3 +205,49 @@ async def bridge_concepts(
 ):
     """Concepts shared by 2+ documents that connect the most other concepts (from precomputed entity_stats)."""
     return {"bridges": await list_bridges(pool, current_user["user_id"], limit, category.upper() if category else None)}
+
+
+def _csv(value: str | None) -> list[str] | None:
+    return [v.strip() for v in value.split(",") if v.strip()] if value else None
+
+
+@router.get("/graph/map")
+async def knowledge_map(
+    mode: Literal["backbone", "full", "communities"] = "backbone",
+    books: str | None = Query(None, description="comma-separated doc_ids; default all"),
+    min_support: int | None = Query(None, ge=1, le=50),
+    categories: str | None = Query(None, max_length=300),
+    cross_book: bool = False,
+    hide_generic: bool = True,
+    community: str | None = None,
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_NODES),
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """The relations between concepts across the caller's documents, filtered to a drawable size."""
+    doc_ids = _csv(books)
+    for value in (doc_ids or []) + ([community] if community else []):
+        try:
+            uuid.UUID(value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid document or community id.")
+    return await build_map(pool, current_user["user_id"], mode=mode, doc_ids=doc_ids, min_support=min_support,
+                           categories=_csv(categories), cross_book=cross_book, hide_generic=hide_generic,
+                           community_id=community, limit=limit)
+
+
+@router.get("/graph/entity/{entity_id}")
+async def concept_detail(
+    entity_id: str,
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db)
+):
+    """One concept: stats, per-document passages and links, same-concept suggestions."""
+    try:
+        uuid.UUID(entity_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid concept id.")
+    detail = await entity_detail(pool, current_user["user_id"], entity_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Concept not found.")
+    return detail
