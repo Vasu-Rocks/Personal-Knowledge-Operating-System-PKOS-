@@ -112,7 +112,7 @@ export default function AuthView() {
                 <input 
                   type="text" 
                   value={name} onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe" required spellCheck="false"
+                  placeholder="John Doe" required spellCheck="false" maxLength={100}
                   style={{ padding: '12px', width: '100%', fontSize: '14px' }} 
                 />
               </div>
@@ -132,9 +132,12 @@ export default function AuthView() {
                   type="text" 
                   value={username} onChange={(e) => setUsername(e.target.value)}
                   placeholder="johndoe" required spellCheck="false"
-                  style={{ padding: '12px', width: '100%', fontSize: '14px' }} 
+                  minLength={3} maxLength={32} pattern="[A-Za-z0-9_.\-]{3,32}"
+                  title="3-32 characters: letters, digits, _ . or -"
+                  style={{ padding: '12px', width: '100%', fontSize: '14px' }}
                 />
               </div>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>3-32 characters: letters, digits, _ . -</span>
             </div>
           )}
           
@@ -149,10 +152,13 @@ export default function AuthView() {
               <input 
                 type="password" 
                 value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••" required 
-                style={{ padding: '12px', width: '100%', fontSize: '14px', letterSpacing: '2px' }} 
+                placeholder="••••••••" required
+                minLength={isLogin ? undefined : 8}
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
+                style={{ padding: '12px', width: '100%', fontSize: '14px', letterSpacing: '2px' }}
               />
             </div>
+            {!isLogin && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>At least 8 characters</span>}
           </div>
 
           <button 

@@ -40,6 +40,16 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
+  // FastAPI sends `detail` as a string for our own errors but as a list of objects for validation errors.
+  const errorMessage = async (response, fallback) => {
+    try {
+      const { detail } = await response.json();
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail) && detail.length) return detail.map((d) => d.msg).join('; ');
+    } catch { /* body was not JSON */ }
+    return fallback;
+  };
+
   const login = async (usernameOrEmail, password) => {
     // URL Encoded form mapping natively to FastAPI OAuth2PasswordRequestForm
     const formData = new URLSearchParams();
@@ -55,8 +65,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Login failed');
+        throw new Error(await errorMessage(response, 'Login failed'));
     }
 
     const data = await response.json();
@@ -73,8 +82,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Registration failed');
+        throw new Error(await errorMessage(response, 'Registration failed'));
     }
 
     // Extract the token directly from the successful registration response
