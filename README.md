@@ -37,6 +37,7 @@ pg_dump -h localhost -p 5433 -U postgres pkos_v2 > pkos_backup.sql
 ```
 
 ## Troubleshooting
+- **Tests**: `pip install -r requirements-dev.txt && pytest` from `backend/` (no DB or Ollama needed).
 - **Health shows `ollama: false`**: start Ollama and check `OLLAMA_BASE_URL`.
 - **Cannot connect to the database**: verify port 5433 and the `POSTGRES_*` variables.
 - **Logged out after every restart**: `PKOS_SECRET_KEY` is not set.
