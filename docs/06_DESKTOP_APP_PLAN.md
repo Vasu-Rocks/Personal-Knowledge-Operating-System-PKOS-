@@ -117,6 +117,20 @@ dev (Phase 4 bundles it and can run offline).
 - D2-6 Tray icon (optional): keep the graph worker running in the background while the window is closed.
 
 ### Phase 3: Frontend changes
+
+**Status (2026-11-21): done.** New `src/components/ai/` (setup wizard, model picker with download progress/cancel/retry,
+cloud key form with connection test and a data/cost notice, header status badge, status polling hook) and `src/lib/`
+(`sse.js` shared stream reader now also used by the chat, `llmApi.js`, `models.js`). Settings rewritten: Ollama /
+OpenAI / Anthropic tabs (Anthropic was not selectable before), installed models with select/remove, masked saved keys
+with remove, "Run setup again", and on the desktop "Open data folder / Open logs". Browser-stored provider and keys
+from older versions are moved to the server once and deleted from the browser; the chat no longer sends any
+provider/key headers. Inter is bundled (`@fontsource-variable/inter`), so no Google requests. 27 new Vitest tests
+(34 total). Verified in the Electron window via the DevTools protocol: first run with the bundled Ollama (no models)
+opens the wizard; skip shows "AI not set up"; with an installed Ollama a new user gets no wizard and a green
+"llama3.2 · on this PC" badge; Settings lists the installed models; a real question was answered by llama3.2 with a
+`[Chunk 1]` citation in 2 s. Not exercised for real: an actual model download (unit-tested only) and real cloud
+calls (no keys). Known gap: the document list does not refresh for uploads made outside its own upload button.
+
 - D3-1 `src/api.js` reads `window.pkos?.apiBase` first, then `VITE_API_BASE_URL` (web/Docker builds keep working).
 - D3-2 First-run wizard (after register/login): step 1 choose "Local AI (Ollama)" or "Cloud API"; step 2a pick a model (llama3.2 3B recommended, with sizes and RAM needs) and download with progress, cancel and retry; step 2b paste an OpenAI/Anthropic key, test it, pick a model; step 3 done. Can be skipped and reopened from Settings.
 - D3-3 Settings rework: provider switch, installed models list (download/delete), API keys (masked, test button), storage usage, data folder location, export/backup.

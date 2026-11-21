@@ -1,15 +1,109 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Server, Cloud, Lock, Save, CheckCircle2, Network, RefreshCw } from 'lucide-react';
+import { X, Server, Cloud, Save, CheckCircle2, Network, RefreshCw, Sparkles, FolderOpen, FileText, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import { API } from '../api';
+import { deleteOllamaModel, getLlmSettings, getOllamaModels, saveLlmSettings, settingsBody } from '../lib/llmApi';
+import { CLOUD_PROVIDERS } from '../lib/models';
+import OllamaModelPicker from './ai/OllamaModelPicker';
+import CloudKeyForm from './ai/CloudKeyForm';
+import './ai/ai.css';
 
-export default function SettingsView({ onClose }) {
-  const [provider, setProvider] = useState('ollama');
-  const [ollamaModel, setOllamaModel] = useState('llama3.2');
-  const [openaiKey, setOpenaiKey] = useState('');
-  const [anthropicKey, setAnthropicKey] = useState('');
-  const [saved, setSaved] = useState(false);
+const PROVIDERS = [
+  { id: 'ollama', label: 'On this PC', icon: Server },
+  { id: 'openai', label: 'OpenAI', icon: Cloud },
+  { id: 'anthropic', label: 'Anthropic', icon: Cloud },
+];
+
+export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
   const { authFetch } = useAuth();
+  const desktop = typeof window !== 'undefined' ? window.pkos : null;
+
+  // ---- AI provider
+  const [saved, setSaved] = useState(null);
+  const [provider, setProvider] = useState('ollama');
+  const [ollamaModel, setOllamaModel] = useState('');
+  const [drafts, setDrafts] = useState({ openai: { key: '', model: '' }, anthropic: { key: '', model: '' } });
+  const [models, setModels] = useState(null);
+  const [modelsError, setModelsError] = useState('');
+  const [error, setError] = useState('');
+  const [justSaved, setJustSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const loadModels = useCallback(async () => {
+    try {
+      setModels(await getOllamaModels(authFetch));
+      setModelsError('');
+    } catch (e) {
+      setModels(null);
+      setModelsError(e.message);
+    }
+  }, [authFetch]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getLlmSettings(authFetch);
+        setSaved(s);
+        setProvider(s.provider);
+        setOllamaModel(s.ollama_model || (s.provider === 'ollama' ? s.effective_model : ''));
+        setDrafts({
+          openai: { key: '', model: s.openai_model || '' },
+          anthropic: { key: '', model: s.anthropic_model || '' },
+        });
+      } catch (e) {
+        setError(e.message);
+      }
+    })();
+    loadModels();
+  }, [authFetch, loadModels]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const changes = {
+        provider,
+        ollama_model: ollamaModel || null,
+        openai_model: drafts.openai.model || null,
+        anthropic_model: drafts.anthropic.model || null,
+      };
+      if (drafts.openai.key) changes.openai_key = drafts.openai.key;
+      if (drafts.anthropic.key) changes.anthropic_key = drafts.anthropic.key;
+      const s = await saveLlmSettings(authFetch, settingsBody(saved, changes));
+      setSaved(s);
+      setDrafts((d) => ({ openai: { ...d.openai, key: '' }, anthropic: { ...d.anthropic, key: '' } }));
+      setJustSaved(true);
+      if (onSaved) onSaved();
+      setTimeout(() => setJustSaved(false), 1500);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeKey = async (p) => {
+    setError('');
+    try {
+      setSaved(await saveLlmSettings(authFetch, settingsBody(saved, { [`${p}_key`]: '' })));
+      if (onSaved) onSaved();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const removeModel = async (name) => {
+    if (!window.confirm(`Remove ${name} from this computer? You can download it again later.`)) return;
+    try {
+      await deleteOllamaModel(authFetch, name);
+      await loadModels();
+      if (onSaved) onSaved();
+    } catch (e) {
+      setModelsError(e.message);
+    }
+  };
+
+  // ---- Knowledge map
   const [graphStatus, setGraphStatus] = useState(null);
   const [rebuilding, setRebuilding] = useState(false);
 
@@ -41,157 +135,110 @@ export default function SettingsView({ onClose }) {
   };
 
   const mapBusy = graphStatus && (graphStatus.rebuild_queued || graphStatus.pending_summaries > 0 || graphStatus.active_jobs > 0);
-
-  useEffect(() => {
-    // Load existing settings
-    setProvider(localStorage.getItem('llm_provider') || 'ollama');
-    setOllamaModel(localStorage.getItem('ollama_model') || 'llama3.2');
-    setOpenaiKey(localStorage.getItem('openai_api_key') || '');
-    setAnthropicKey(localStorage.getItem('anthropic_api_key') || '');
-  }, []);
-
-  const handleSave = () => {
-    localStorage.setItem('llm_provider', provider);
-    localStorage.setItem('ollama_model', ollamaModel);
-    localStorage.setItem('openai_api_key', openaiKey);
-    localStorage.setItem('anthropic_api_key', anthropicKey);
-    
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      onClose();
-    }, 1000);
-  };
+  const savedProviderChanged = saved && saved.provider !== provider;
 
   return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(8px)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center'
-    }}>
-      <div className="glass-panel" style={{
-        width: '450px', borderRadius: 'var(--radius-lg)', overflow: 'hidden',
-        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: 'var(--pane-border)', background: 'rgba(255,255,255,0.02)' }}>
-          <h2 style={{ fontSize: '16px', fontWeight: '600' }}>Inference Settings</h2>
-          <button onClick={onClose} style={{ color: 'var(--text-muted)' }}>
+    <div className="ai-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div className="ai-card glass-panel">
+        <div className="ai-card-header">
+          <h2 id="settings-title">Settings</h2>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ color: 'var(--text-muted)' }}>
             <X size={20} />
           </button>
         </div>
 
-        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
-          {/* Provider Toggle */}
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '10px' }}>Active Provider</label>
-            <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-md)', padding: '4px' }}>
-              <button
-                onClick={() => setProvider('ollama')}
-                style={{
-                  flex: 1, padding: '10px', borderRadius: 'var(--radius-sm)',
-                  background: provider === 'ollama' ? 'var(--accent-blue)' : 'transparent',
-                  color: provider === 'ollama' ? '#fff' : 'var(--text-muted)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '13px', fontWeight: '500', border: 'none'
-                }}
-              >
-                <Server size={16} /> Local Ollama
-              </button>
-              <button
-                onClick={() => setProvider('openai')}
-                style={{
-                  flex: 1, padding: '10px', borderRadius: 'var(--radius-sm)',
-                  background: provider === 'openai' ? 'var(--accent-blue)' : 'transparent',
-                  color: provider === 'openai' ? '#fff' : 'var(--text-muted)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '13px', fontWeight: '500', border: 'none'
-                }}
-              >
-                <Cloud size={16} /> Cloud LLM
-              </button>
+        <div className="ai-card-body">
+          {/* AI provider */}
+          <section>
+            <div className="ai-section-title" style={{ justifyContent: 'space-between' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Sparkles size={14} /> AI model</span>
+              {onOpenSetup && (
+                <button type="button" className="ai-btn-link ai-btn" onClick={onOpenSetup}>Run setup again</button>
+              )}
             </div>
-          </div>
-
-          {/* Dynamic Settings */}
-          {provider === 'ollama' && (
-            <div>
-               <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Ollama Model Name</label>
-               <input 
-                 type="text" 
-                 value={ollamaModel}
-                 onChange={(e) => setOllamaModel(e.target.value)}
-                 placeholder="e.g. llama3.2"
-                 style={{ 
-                   width: '100%', padding: '12px 16px', borderRadius: 'var(--radius-md)', 
-                   background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none'
-                 }}
-               />
+            {error && <div className="ai-alert ai-alert-error" style={{ marginBottom: 12 }}><AlertTriangle size={16} /> {error}</div>}
+            <div className="ai-tabs" role="tablist" aria-label="AI provider" style={{ marginBottom: 16 }}>
+              {PROVIDERS.map(({ id, label, icon }) => (
+                <button key={id} type="button" role="tab" aria-selected={provider === id}
+                  className={`ai-tab${provider === id ? ' active' : ''}`} onClick={() => setProvider(id)}>
+                  {React.createElement(icon, { size: 15 })} {label}
+                </button>
+              ))}
             </div>
-          )}
 
-          {provider === 'openai' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-               <div>
-                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                   <Lock size={12} /> OpenAI API Key
-                 </label>
-                 <input 
-                   type="password" 
-                   value={openaiKey}
-                   onChange={(e) => setOpenaiKey(e.target.value)}
-                   placeholder="sk-..."
-                   autoComplete="new-password"
-                   style={{ 
-                     width: '100%', padding: '12px 16px', borderRadius: 'var(--radius-md)', 
-                     background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none'
-                   }}
-                 />
-                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: 1.4 }}>
-                   Stored exclusively on your device via HTML5 LocalStorage. Never saved to our database.
-                 </p>
-               </div>
-            </div>
-          )}
-        </div>
+            {provider === 'ollama' && (
+              models ? (
+                <OllamaModelPicker
+                  installed={models}
+                  selected={ollamaModel}
+                  onSelect={setOllamaModel}
+                  onDownloaded={async (name) => { await loadModels(); setOllamaModel(name); }}
+                  onDelete={removeModel}
+                  selectLabel="Select"
+                />
+              ) : (
+                <div className="ai-alert ai-alert-error">{modelsError || 'Loading models…'}</div>
+              )
+            )}
 
-        {/* Knowledge map */}
-        <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-            <Network size={14} /> Knowledge map
-          </label>
-          {graphStatus && (
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              {graphStatus.entities} concepts, {graphStatus.relationships} relationships, {graphStatus.communities} topic groups
-              {graphStatus.pending_summaries > 0 ? ` (${graphStatus.pending_summaries} still being summarised)` : ''}
-              {graphStatus.active_jobs > 0 ? ' - documents are still being processed' : ''}
-              {graphStatus.rebuild_queued && graphStatus.active_jobs === 0 ? ' - rebuild queued' : ''}
+            {provider !== 'ollama' && (
+              <>
+                <CloudKeyForm
+                  key={provider}
+                  provider={provider}
+                  saved={saved}
+                  draft={drafts[provider]}
+                  onChange={(d) => setDrafts((all) => ({ ...all, [provider]: d }))}
+                />
+                {saved && saved[`${provider}_key_set`] && (
+                  <button type="button" className="ai-btn ai-btn-danger" style={{ marginTop: 12 }} onClick={() => removeKey(provider)}>
+                    Remove saved {CLOUD_PROVIDERS[provider].label} key
+                  </button>
+                )}
+              </>
+            )}
+            {savedProviderChanged && (
+              <p className="ai-muted" style={{ marginTop: 10 }}>Save to switch PKOS to this provider.</p>
+            )}
+          </section>
+
+          {/* Knowledge map */}
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="ai-section-title"><Network size={14} /> Knowledge map</div>
+            {graphStatus && (
+              <p className="ai-muted">
+                {graphStatus.entities} concepts, {graphStatus.relationships} relationships, {graphStatus.communities} topic groups
+                {graphStatus.pending_summaries > 0 ? ` (${graphStatus.pending_summaries} still being summarised)` : ''}
+                {graphStatus.active_jobs > 0 ? ' - documents are still being processed' : ''}
+                {graphStatus.rebuild_queued && graphStatus.active_jobs === 0 ? ' - rebuild queued' : ''}
+              </p>
+            )}
+            <button type="button" className="ai-btn" style={{ alignSelf: 'flex-start' }} onClick={handleRebuild}
+              disabled={rebuilding || (graphStatus && graphStatus.rebuild_queued)}>
+              <RefreshCw size={14} className={mapBusy ? 'loader' : undefined} /> Rebuild knowledge map
+            </button>
+            <p className="ai-muted">
+              Topic groups answer broad questions such as "give me an overview". They rebuild automatically after a document finishes processing.
             </p>
+          </section>
+
+          {/* Desktop app */}
+          {desktop && desktop.isDesktop && (
+            <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="ai-section-title"><FolderOpen size={14} /> This computer</div>
+              <p className="ai-muted">Your vault is stored in {desktop.dataDir}. PKOS {desktop.version}.</p>
+              <div className="ai-row">
+                <button type="button" className="ai-btn" onClick={() => desktop.openDataFolder()}><FolderOpen size={14} /> Open data folder</button>
+                <button type="button" className="ai-btn" onClick={() => desktop.openLogs()}><FileText size={14} /> Open logs</button>
+              </div>
+            </section>
           )}
-          <button
-            onClick={handleRebuild}
-            disabled={rebuilding || (graphStatus && graphStatus.rebuild_queued)}
-            style={{
-              alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px',
-              borderRadius: 'var(--radius-sm)', fontSize: '12px', background: 'rgba(255,255,255,0.05)',
-              color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer'
-            }}
-          >
-            <RefreshCw size={14} className={mapBusy ? 'loader' : undefined} /> Rebuild knowledge map
-          </button>
-          <p style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-            Topic groups answer broad questions such as "give me an overview". They rebuild automatically after a document finishes processing.
-          </p>
         </div>
 
-        {/* Footer */}
-        <div style={{ padding: '16px 24px', borderTop: 'var(--pane-border)', background: 'rgba(0,0,0,0.2)', display: 'flex', justifyContent: 'flex-end' }}>
-          <button 
-            onClick={handleSave}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--accent-blue)', 
-              color: '#fff', padding: '10px 20px', borderRadius: 'var(--radius-sm)', fontSize: '13px', fontWeight: '500', border: 'none', cursor: 'pointer'
-            }}
-          >
-            {saved ? <><CheckCircle2 size={16} /> Saved</> : <><Save size={16} /> Save Config</>}
+        <div className="ai-card-footer">
+          <span className="ai-muted">{justSaved ? '' : 'API keys are stored encrypted and never shown again.'}</span>
+          <button type="button" className="ai-btn ai-btn-primary" onClick={handleSave} disabled={saving || !saved}>
+            {justSaved ? <><CheckCircle2 size={16} /> Saved</> : <><Save size={16} /> {saving ? 'Saving…' : 'Save'}</>}
           </button>
         </div>
       </div>

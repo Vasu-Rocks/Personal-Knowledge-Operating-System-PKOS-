@@ -6,7 +6,7 @@ import SettingsView from './SettingsView';
 import ConnectionsView from './ConnectionsView';
 import KnowledgeMapView from './KnowledgeMapView';
 
-export default function VaultView({ width = 250 }) {
+export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
   const { authFetch, logout, user } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [isHovering, setIsHovering] = useState(false);
@@ -346,7 +346,13 @@ export default function VaultView({ width = 250 }) {
         </button>
       </div>
       
-      {showSettings && <SettingsView onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsView
+          onClose={() => setShowSettings(false)}
+          onSaved={onAiChanged}
+          onOpenSetup={onOpenSetup && (() => { setShowSettings(false); onOpenSetup(); })}
+        />
+      )}
       {showConnections && <ConnectionsView onClose={() => setShowConnections(false)} />}
       {showMap && <KnowledgeMapView onClose={() => setShowMap(false)} />}
     </div>

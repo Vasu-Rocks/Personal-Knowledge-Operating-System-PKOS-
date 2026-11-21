@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/useAuth';
 import VaultView from './VaultView';
 import { API } from '../api';
+import { readSSE } from '../lib/sse';
+import { migrateLegacySettings } from '../lib/llmApi';
+import useAiStatus from './ai/useAiStatus';
+import StatusBadge from './ai/StatusBadge';
+import SetupWizard from './ai/SetupWizard';
+
+const SETUP_SKIPPED = 'pkos_ai_setup_skipped'; // sessionStorage: skipping lasts until the app restarts
 import { Send, Terminal, KeySquare, ChevronRight, Activity, Bot, User, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,6 +16,32 @@ import ForceGraph2D from 'react-force-graph-2d';
 
 export default function Dashboard() {
   const { authFetch } = useAuth();
+  const ai = useAiStatus(authFetch);
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  // First load: move provider/keys from old browser storage to the server, then open setup if no AI is usable.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await migrateLegacySettings(authFetch);
+      } catch (err) {
+        console.error('Could not migrate AI settings from browser storage', err);
+      }
+      const status = await ai.refresh();
+      if (!cancelled && status && !status.ready && !status.configured && !sessionStorage.getItem(SETUP_SKIPPED)) {
+        setSetupOpen(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closeSetup = (done) => {
+    if (!done) sessionStorage.setItem(SETUP_SKIPPED, '1');
+    setSetupOpen(false);
+    ai.refresh();
+  };
+
   const [messages, setMessages] = useState([
     {
       id: "sys_init",
@@ -163,115 +196,57 @@ export default function Dashboard() {
     setIsTyping(true);
 
     try {
-      const requestHeaders = { 'Content-Type': 'application/json' };
-      requestHeaders['X-LLM-Provider'] = localStorage.getItem('llm_provider') || 'ollama';
-      requestHeaders['X-Ollama-Model'] = localStorage.getItem('ollama_model') || 'llama3.2';
-      
-      const openaiKey = localStorage.getItem('openai_api_key');
-      if (openaiKey) requestHeaders['X-OpenAI-Key'] = openaiKey;
-      
-      const anthropicKey = localStorage.getItem('anthropic_api_key');
-      if (anthropicKey) requestHeaders['X-Anthropic-Key'] = anthropicKey;
-
+      // The provider, model and API keys come from the user's saved settings on the server.
       const res = await authFetch(`${API}/query/stream`, {
         method: 'POST',
-        headers: requestHeaders,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query })
       });
 
       if (!res.ok) throw new Error("Query Streaming Failed");
-      
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-      let isDone = false;
 
-      while (!isDone) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      await readSSE(res, (payloadStr) => {
+        try {
+          const parsed = JSON.parse(payloadStr);
+          if (parsed.type === 'sources') {
+            setMessages(prev => prev.map(m => 
+              m.id === aiMsgId ? { ...m, sources: parsed.sources || [] } : m
+            ));
+          } else if (parsed.type === 'graph') {
+            const gData = parsed.data || { nodes: [], links: [] };
+            
+            // O(1) Precompute neighbors
+            const neighborMap = new Map();
+            gData.links.forEach(l => {
+              const src = typeof l.source === 'object' ? l.source.id : l.source;
+              const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+              if (!neighborMap.has(src)) neighborMap.set(src, new Set());
+              if (!neighborMap.has(tgt)) neighborMap.set(tgt, new Set());
+              neighborMap.get(src).add(tgt);
+              neighborMap.get(tgt).add(src);
+            });
 
-        buffer += decoder.decode(value, { stream: true });
-
-        // Network packet fragmentation handling:
-        // SSE frames are delimited by double newlines '\n\n'
-        const parts = buffer.split('\n\n');
-        // Keep the last segment in the buffer because it might be incomplete across packet boundaries
-        buffer = parts.pop();
-
-        for (const part of parts) {
-          const trimmed = part.trim();
-          if (!trimmed) continue;
-
-          const lines = trimmed.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const payloadStr = line.slice(6).trim();
-              if (payloadStr === '[DONE]') {
-                isDone = true;
-                break;
+            gData.nodes.forEach(n => {
+              n.neighbors = neighborMap.get(n.id) || new Set();
+              if (n.isPrimarySeed) {
+                n.fx = 0;
+                n.fy = 0;
+                n.name = `⭐ ${n.name}`;
+                n.val = 5; // Make it significantly larger than surrounding nodes
+              } else {
+                n.val = 1; // Default size
               }
-              try {
-                const parsed = JSON.parse(payloadStr);
-                if (parsed.type === 'sources') {
-                  setMessages(prev => prev.map(m => 
-                    m.id === aiMsgId ? { ...m, sources: parsed.sources || [] } : m
-                  ));
-                } else if (parsed.type === 'graph') {
-                  const gData = parsed.data || { nodes: [], links: [] };
-                  
-                  // O(1) Precompute neighbors
-                  const neighborMap = new Map();
-                  gData.links.forEach(l => {
-                    const src = typeof l.source === 'object' ? l.source.id : l.source;
-                    const tgt = typeof l.target === 'object' ? l.target.id : l.target;
-                    if (!neighborMap.has(src)) neighborMap.set(src, new Set());
-                    if (!neighborMap.has(tgt)) neighborMap.set(tgt, new Set());
-                    neighborMap.get(src).add(tgt);
-                    neighborMap.get(tgt).add(src);
-                  });
-
-                  gData.nodes.forEach(n => {
-                    n.neighbors = neighborMap.get(n.id) || new Set();
-                    if (n.isPrimarySeed) {
-                      n.fx = 0;
-                      n.fy = 0;
-                      n.name = `⭐ ${n.name}`;
-                      n.val = 5; // Make it significantly larger than surrounding nodes
-                    } else {
-                      n.val = 1; // Default size
-                    }
-                  });
-                  setGraphData(gData);
-                } else if (parsed.type === 'token') {
-                  setMessages(prev => prev.map(m => 
-                    m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
-                  ));
-                }
-              } catch (err) {
-                console.error("[SSE Parse Warning] Could not parse SSE payload:", payloadStr, err);
-              }
-            }
+            });
+            setGraphData(gData);
+          } else if (parsed.type === 'token') {
+            setMessages(prev => prev.map(m => 
+              m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
+            ));
           }
-          if (isDone) break;
+        } catch (err) {
+          console.error("[SSE Parse Warning] Could not parse SSE payload:", payloadStr, err);
         }
-      }
-
-      // Flush remaining complete frame if any
-      if (buffer.trim().startsWith('data: ')) {
-        const payloadStr = buffer.trim().slice(6).trim();
-        if (payloadStr !== '[DONE]') {
-          try {
-            const parsed = JSON.parse(payloadStr);
-            if (parsed.type === 'token') {
-              setMessages(prev => prev.map(m => 
-                m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
-              ));
-            }
-          } catch {
-            // Ignore trailing unparseable fragment
-          }
-        }
-      }
+      });
 
     } catch (err) {
       console.error(err);
@@ -291,7 +266,8 @@ export default function Dashboard() {
   return (
     <div className="os-shell">
       {/* 1. Left: Vault / Documents */}
-      <VaultView width={leftWidth} />
+      <VaultView width={leftWidth} onOpenSetup={() => setSetupOpen(true)} onAiChanged={ai.refresh} />
+      {setupOpen && <SetupWizard status={ai.llm} onClose={closeSetup} />}
       
       {/* Resizer Left */}
       <div 
@@ -308,6 +284,7 @@ export default function Dashboard() {
         <div style={{ height: '60px', borderBottom: 'var(--pane-border)', display: 'flex', alignItems: 'center', padding: '0 24px', background: 'rgba(0,0,0,0.1)' }}>
           <Terminal size={18} color="var(--accent-blue)" style={{ marginRight: '12px' }} />
           <span style={{ fontWeight: '500', fontSize: '14px', letterSpacing: '0.5px' }}>Generative Inference Core</span>
+          <StatusBadge llm={ai.llm} system={ai.system} error={ai.error} onClick={() => setSetupOpen(true)} />
         </div>
 
         {/* Message Stream */}

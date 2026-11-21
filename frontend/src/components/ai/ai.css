@@ -1,0 +1,100 @@
+/* Shared styles for the AI setup wizard, AI settings and the status badge. */
+.ai-backdrop {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); padding: 24px;
+}
+.ai-card {
+  width: 100%; max-width: 620px; max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+  border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+.ai-card-header {
+  display: flex; justify-content: space-between; align-items: center; padding: 18px 24px;
+  border-bottom: var(--pane-border); background: rgba(255, 255, 255, 0.02);
+}
+.ai-card-header h2 { font-size: 16px; font-weight: 600; }
+.ai-card-body { padding: 24px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+.ai-card-footer {
+  padding: 14px 24px; border-top: var(--pane-border); background: rgba(0, 0, 0, 0.2);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.ai-section-title {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--text-secondary); margin-bottom: 10px;
+}
+.ai-muted { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.ai-lead { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+
+.ai-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px;
+  border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ai-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+.ai-btn-primary { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+.ai-btn-danger { color: #fca5a5; border-color: rgba(248, 113, 113, 0.35); }
+.ai-btn-link { padding: 0; border: none; background: none; color: var(--accent-blue); font-size: 12px; }
+.ai-btn-link:hover { transform: none; text-decoration: underline; }
+
+.ai-input {
+  width: 100%; padding: 11px 14px; border-radius: var(--radius-md); font-size: 14px; color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ai-input:focus { border-color: var(--accent-blue); }
+.ai-label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.ai-row { display: flex; gap: 10px; align-items: center; }
+.ai-row > .ai-input { flex: 1; }
+
+.ai-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ai-choice {
+  text-align: left; padding: 16px; border-radius: var(--radius-md); background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; gap: 8px; color: var(--text-primary);
+}
+.ai-choice:hover:not(:disabled) { border-color: var(--accent-blue); background: var(--accent-glow); }
+.ai-choice.selected { border-color: var(--accent-blue); background: var(--accent-glow); }
+.ai-choice:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.ai-choice-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.ai-choice p { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+.ai-tabs { display: flex; background: rgba(0, 0, 0, 0.3); border-radius: var(--radius-md); padding: 4px; gap: 4px; }
+.ai-tab {
+  flex: 1; padding: 9px; border-radius: var(--radius-sm); color: var(--text-muted); font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.ai-tab.active { background: var(--accent-blue); color: #fff; }
+
+.ai-model {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 12px 14px;
+  border-radius: var(--radius-md); background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ai-model.active { border-color: var(--accent-blue); }
+.ai-model-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ai-model-meta { font-size: 12px; color: var(--text-muted); grid-column: 1; }
+.ai-model-actions { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 8px; align-items: center; }
+.ai-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 6px; border-radius: 4px; }
+.ai-tag-ok { color: #4ade80; background: rgba(74, 222, 128, 0.12); }
+.ai-tag-active { color: #93c5fd; background: rgba(59, 130, 246, 0.18); }
+
+.ai-progress { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.ai-progress > div { height: 100%; background: var(--accent-blue); transition: width 300ms ease; }
+.ai-progress.indeterminate > div { width: 30%; animation: ai-slide 1.2s ease-in-out infinite; }
+@keyframes ai-slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+
+.ai-alert { padding: 10px 12px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.5; display: flex; gap: 8px; }
+.ai-alert-error { background: rgba(127, 29, 29, 0.35); color: #fecaca; border: 1px solid rgba(248, 113, 113, 0.3); }
+.ai-alert-ok { background: rgba(20, 83, 45, 0.35); color: #bbf7d0; border: 1px solid rgba(74, 222, 128, 0.3); }
+.ai-alert-warn { background: rgba(113, 63, 18, 0.35); color: #fde68a; border: 1px solid rgba(251, 191, 36, 0.3); }
+
+.ai-steps { display: flex; gap: 6px; }
+.ai-steps span { width: 28px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
+.ai-steps span.on { background: var(--accent-blue); }
+
+.ai-status {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  font-size: 12px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.04); border: var(--pane-border);
+  max-width: 50%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ai-status:hover { transform: none; border-color: rgba(255, 255, 255, 0.15); }
+.ai-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); }
+.ai-dot.ok { background: #4ade80; }
+.ai-dot.warn { background: #fbbf24; }
+.ai-dot.err { background: #f87171; }
