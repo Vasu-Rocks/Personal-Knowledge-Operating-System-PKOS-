@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../context/AuthContext';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useAuth } from '../context/useAuth';
 import { API } from '../api';
 import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2, Settings, Play, Pause, AlertTriangle, Clock, Network, Map as MapIcon } from 'lucide-react';
 import SettingsView from './SettingsView';
@@ -18,7 +18,7 @@ export default function VaultView({ width = 250 }) {
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       const res = await authFetch(`${API}/documents`);
       if (res.ok) {
@@ -28,11 +28,11 @@ export default function VaultView({ width = 250 }) {
     } catch (err) {
       console.error("Failed to sync vault state:", err);
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
     fetchDocuments();
-  }, []);
+  }, [fetchDocuments]);
 
   // Poll while any graph job is queued or running so progress stays live.
   const hasActiveJob = documents.some(d =>
@@ -42,7 +42,7 @@ export default function VaultView({ width = 250 }) {
     if (!hasActiveJob) return;
     const timer = setInterval(fetchDocuments, 4000);
     return () => clearInterval(timer);
-  }, [hasActiveJob]);
+  }, [hasActiveJob, fetchDocuments]);
 
   const handleJobAction = async (docId, action, e) => {
     e.stopPropagation();

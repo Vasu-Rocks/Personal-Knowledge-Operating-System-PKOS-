@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { X, Search, Map as MapIcon, ArrowRight, Loader2, BookOpen, ChevronLeft } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
+import { API } from '../api';
 import { bookColorAt, shortBook } from './bookColors';
 
-const API = 'http://localhost:8000/api/v1';
 const CATEGORIES = ['CONCEPT', 'METHOD', 'TECHNOLOGY', 'PERSON', 'ORGANIZATION', 'EVENT', 'LOCATION', 'OTHER'];
 const MODES = [
   { id: 'backbone', label: 'Backbone', hint: 'Links backed by 2+ passages' },

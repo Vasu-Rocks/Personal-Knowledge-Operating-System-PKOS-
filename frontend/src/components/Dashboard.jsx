@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import VaultView from './VaultView';
+import { API } from '../api';
 import { Send, Terminal, KeySquare, ChevronRight, Activity, Bot, User, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -79,6 +80,8 @@ export default function Dashboard() {
   };
 
   const MarkdownComponents = {
+    // `node` is destructured only to keep it out of the DOM props spread below.
+    // eslint-disable-next-line no-unused-vars
     a: ({ node, href, children, ...props }) => {
       if (href && href.startsWith('citation://')) {
         const url = new URL(href);
@@ -170,7 +173,7 @@ export default function Dashboard() {
       const anthropicKey = localStorage.getItem('anthropic_api_key');
       if (anthropicKey) requestHeaders['X-Anthropic-Key'] = anthropicKey;
 
-      const res = await authFetch('http://localhost:8000/api/v1/query/stream', {
+      const res = await authFetch(`${API}/query/stream`, {
         method: 'POST',
         headers: requestHeaders,
         body: JSON.stringify({ query })
@@ -264,7 +267,7 @@ export default function Dashboard() {
                 m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
               ));
             }
-          } catch (e) {
+          } catch {
             // Ignore trailing unparseable fragment
           }
         }

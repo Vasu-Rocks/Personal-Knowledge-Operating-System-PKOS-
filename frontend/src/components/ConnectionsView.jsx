@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { X, Search, Network, ArrowRight, ArrowLeft, AlertTriangle, BookOpen } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
+import { API } from '../api';
 import { bookColor, shortBook } from './bookColors';
 
-const API = 'http://localhost:8000/api/v1';
 
 function BookBadge({ name }) {
   const color = bookColor(name);

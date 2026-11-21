@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Server, Cloud, Lock, Save, CheckCircle2, Network, RefreshCw } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { API } from '../api';
 
 export default function SettingsView({ onClose }) {
@@ -13,25 +13,25 @@ export default function SettingsView({ onClose }) {
   const [graphStatus, setGraphStatus] = useState(null);
   const [rebuilding, setRebuilding] = useState(false);
 
-  const loadGraphStatus = async () => {
+  const loadGraphStatus = useCallback(async () => {
     try {
-      const res = await authFetch('http://localhost:8000/api/v1/graph/status');
+      const res = await authFetch(`${API}/graph/status`);
       if (res.ok) setGraphStatus(await res.json());
     } catch (err) {
       console.error('Failed to load graph status', err);
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
     loadGraphStatus();
     const timer = setInterval(loadGraphStatus, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [loadGraphStatus]);
 
   const handleRebuild = async () => {
     setRebuilding(true);
     try {
-      await authFetch('http://localhost:8000/api/v1/graph/rebuild', { method: 'POST' });
+      await authFetch(`${API}/graph/rebuild`, { method: 'POST' });
       await loadGraphStatus();
     } catch (err) {
       console.error('Rebuild request failed', err);

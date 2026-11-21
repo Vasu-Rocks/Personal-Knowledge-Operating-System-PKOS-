@@ -1,44 +1,36 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { API } from '../api';
-
-const AuthContext = createContext();
-
-export const useAuth = () => useContext(AuthContext);
+import { AuthContext } from './useAuth';
 
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('pkos_token') || null);
-  const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(!!token);
+  const [profile, setProfile] = useState(null);
+  const isAuthenticated = !!token;
+  const user = token ? profile : null; // derived, so logging out needs no extra state reset
 
-  const fetchCurrentUser = async (currentToken) => {
-    try {
-      const res = await fetch(`${API}/me`, {
-        headers: {
-          Authorization: `Bearer ${currentToken}`
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data);
-      } else if (res.status === 401) {
-        logout();
-      }
-    } catch (err) {
-      console.error("Failed to fetch user profile details:", err);
-    }
-  };
+  const logout = useCallback(() => {
+    setToken(null);
+  }, []);
 
   useEffect(() => {
-    if (token) {
-      localStorage.setItem('pkos_token', token);
-      setIsAuthenticated(true);
-      fetchCurrentUser(token);
-    } else {
+    if (!token) {
       localStorage.removeItem('pkos_token');
-      setIsAuthenticated(false);
-      setUser(null);
+      return;
     }
-  }, [token]);
+    localStorage.setItem('pkos_token', token);
+    (async () => {
+      try {
+        const res = await fetch(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          setProfile(await res.json());
+        } else if (res.status === 401) {
+          logout();
+        }
+      } catch (err) {
+        console.error("Failed to fetch user profile details:", err);
+      }
+    })();
+  }, [token, logout]);
 
   // FastAPI sends `detail` as a string for our own errors but as a list of objects for validation errors.
   const errorMessage = async (response, fallback) => {
@@ -91,17 +83,14 @@ export const AuthProvider = ({ children }) => {
     setToken(data.access_token);
   };
 
-  const logout = () => {
-    setToken(null);
-  };
-
-  const authFetch = async (url, options = {}) => {
+  // Stable identity (changes only when the token does) so effects can depend on it.
+  const authFetch = useCallback(async (url, options = {}) => {
     const headers = {
       ...options.headers,
       Authorization: `Bearer ${token}`,
     };
     return fetch(url, { ...options, headers });
-  };
+  }, [token]);
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, user, login, register, logout, authFetch }}>
