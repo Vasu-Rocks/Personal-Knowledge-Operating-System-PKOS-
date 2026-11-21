@@ -1,0 +1,29 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: #0f1115; color: #e6e8ee; font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  -webkit-app-region: drag; user-select: none;
+}
+main { width: 420px; }
+h1 { margin: 0; font-size: 28px; letter-spacing: 0.04em; }
+.sub { margin: 4px 0 24px; color: #9aa3b2; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { display: grid; grid-template-columns: 24px 1fr; column-gap: 8px; padding: 8px 0; border-bottom: 1px solid #1f2430; }
+.icon { grid-row: span 2; font-size: 16px; color: #5b6475; text-align: center; }
+.label { font-weight: 600; }
+.detail { color: #9aa3b2; font-size: 12px; min-height: 1em; }
+li.starting .icon, li.restarting .icon { color: #7aa2ff; animation: pulse 1s ease-in-out infinite; }
+li.running .icon { color: #4ade80; }
+li.degraded .icon { color: #fbbf24; }
+li.failed .icon { color: #f87171; }
+#error { margin-top: 20px; padding: 12px; border: 1px solid #7f1d1d; border-radius: 8px; background: #1c1214; }
+#error p { margin: 0 0 12px; color: #fecaca; word-break: break-word; }
+.buttons { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+button {
+  flex: 1; padding: 8px; border: 1px solid #2c3444; border-radius: 6px; background: #1a1f2a; color: #e6e8ee;
+  font: inherit; cursor: pointer;
+}
+button:hover { background: #242b39; }
+#retry { background: #2b4ea2; border-color: #2b4ea2; }
+@keyframes pulse { 50% { opacity: 0.35; } }

@@ -1,0 +1,16 @@
+{
+  "name": "pkos-desktop",
+  "productName": "PKOS",
+  "version": "0.1.0",
+  "description": "PKOS desktop app: runs the database, Ollama and the PKOS backend locally.",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "electron": "45.2.3"
+  }
+}

@@ -21,6 +21,8 @@ backend/.cache/
 # Node / Frontend
 frontend/node_modules/
 frontend/dist/
+desktop/node_modules/
+desktop/out/
 
 # IDE
 .vscode/

@@ -97,6 +97,18 @@ until a user saves settings (removed in D3-5). New endpoints: `GET/PUT /settings
 - D1-7 Tests for the provider layer (fake HTTP servers for Ollama/OpenAI/Anthropic), settings encryption, and pull progress.
 
 ### Phase 2: Electron shell (`desktop/`)
+
+**Status (2026-11-21): done** (D2-6 tray icon deferred). Electron 45.2.3, plain CommonJS, no build step; see
+`desktop/README.md`. Verified on this PC in dev mode: first run (`initdb`, secrets in DPAPI-protected `config.json`),
+all three services up, UI served from `app://pkos` with CSP, CORS for that origin, login through the app's backend,
+`/llm/status` reporting "model not downloaded" against the bundled Ollama, an existing Ollama on 11434 detected and
+reused, normal quit stopping every child (Postgres via `pg_ctl`, Ollama with its runner processes), a stray Postgres
+and a stray bundled Ollama from a killed session cleaned up on the next start, and the backend exiting when its
+parent dies (Windows handle watchdog in `backend/desktop_entry.py`). 15 `node:test` unit tests (config secrets, paths,
+supervisor restart policy, log rotation); a CI job runs them. Findings for Phase 3: the UI loads the Inter font from
+Google Fonts, which the CSP blocks (self-host it, M4); the embedding model still makes Hugging Face update checks in
+dev (Phase 4 bundles it and can run offline).
+
 - D2-1 Project setup: `electron`, `electron-builder`, TypeScript optional; `npm run dev` starts Electron against the Vite dev server and a dev backend.
 - D2-2 Process manager: free-port finder, spawn/stop/restart for postgres, ollama, backend; health checks; log piping to files.
 - D2-3 First-run bootstrap: folders, secrets in `config.json` (file ACL limited to the user), `initdb`.
