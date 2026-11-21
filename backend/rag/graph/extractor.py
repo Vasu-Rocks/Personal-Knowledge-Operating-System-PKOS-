@@ -1,7 +1,7 @@
 import httpx
-import json
 import logging
-from core.config import OLLAMA_CHAT_URL, get_ollama_model
+from core.config import get_ollama_model
+from core.llm import LLMSettings, chat_text, extract_json
 from rag.graph.vocab import PREDICATES, canonicalize, squash
 
 logger = logging.getLogger(__name__)
@@ -61,21 +61,25 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_extraction_request(text: str, filename: str, previous_context: str = "") -> dict:
-    """Ollama /api/chat payload for one chunk. Shared by the extractor and graph_baseline."""
+def build_extraction_messages(text: str, filename: str, previous_context: str = "") -> list[dict]:
     user = f"Document: {filename}\n\n"
     if previous_context:
         user += f"[PRECEDING TEXT - for resolving pronouns only]\n{previous_context}\n\n"
     user += f"[PASSAGE TO EXTRACT FROM]\n{text}"
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_extraction_request(text: str, filename: str, previous_context: str = "") -> dict:
+    """Ollama /api/chat payload for one chunk (used by the graph_baseline timing script)."""
     return {
         "model": get_ollama_model(),
         "stream": False,
         "format": GRAPH_SCHEMA,
         "keep_alive": "15m",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user},
-        ],
+        "messages": build_extraction_messages(text, filename, previous_context),
         "options": {
             "temperature": 0.0,  # Forces deterministic extraction
             "num_ctx": 2048,  # Caps VRAM usage; 4096 measured ~30% slower per token on the RTX 3050
@@ -106,17 +110,22 @@ def ground_extraction(data: dict, *texts: str) -> dict:
     return {"entities": entities, "relationships": relationships}
 
 
-async def extract_chunk(client: httpx.AsyncClient, text: str, filename: str, previous_context: str = "") -> dict | None:
+async def extract_chunk(client: httpx.AsyncClient, text: str, filename: str, previous_context: str = "",
+                        settings: LLMSettings | None = None) -> dict | None:
     """
-    Phase 2: Offline Triplet Extraction for one chunk.
+    Phase 2: Offline Triplet Extraction for one chunk, with the user's chosen provider (Ollama by default).
     Returns grounded {"entities", "relationships"}, or None when the model produced invalid JSON.
-    Connection and HTTP errors propagate so the worker can fail the job (it is resumable).
+    Provider errors (LLMError) propagate so the worker can fail the job (it is resumable).
     """
-    response = await client.post(OLLAMA_CHAT_URL, json=build_extraction_request(text, filename, previous_context))
-    response.raise_for_status()
-    content = response.json().get("message", {}).get("content", "")
-    try:
-        return ground_extraction(json.loads(content), text, previous_context)
-    except json.JSONDecodeError:
-        logger.warning(f"Ollama returned invalid JSON: {content[:200]}")
+    s = settings or LLMSettings()
+    content = await chat_text(
+        s, build_extraction_messages(text, filename, previous_context), schema=GRAPH_SCHEMA,
+        temperature=0.0,
+        num_ctx=2048,  # Caps VRAM usage on Ollama; 4096 measured ~30% slower per token on the RTX 3050
+        max_tokens=1024,  # Bounds runaway generations (observed >300s without a cap)
+        client=client)
+    data = extract_json(content)
+    if data is None:
+        logger.warning(f"{s.label} returned invalid JSON: {content[:200]}")
         return None
+    return ground_extraction(data, text, previous_context)

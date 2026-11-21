@@ -63,5 +63,26 @@ def test_migrations_are_recorded_and_idempotent(client):
             await conn.close()
 
     versions, cols = asyncio.run(check())
-    assert versions == [1]
+    assert versions == [1, 2]
     assert "mention_snippet" not in cols
+
+
+def test_desktop_mode_refuses_to_boot_without_secret(monkeypatch):
+    from core import security
+
+    monkeypatch.setenv("ENV", "desktop")
+    monkeypatch.delenv("PKOS_SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="ENV=desktop"):
+        security._get_secret_key()
+
+
+def test_importing_the_app_does_not_load_torch():
+    """API startup must not wait for torch (~14 s); the embedder loads it lazily / in the background."""
+    import subprocess
+    import sys
+
+    code = "import main, sys; print('torch' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
+                         cwd=os.path.dirname(os.path.dirname(__file__)), env={**os.environ})
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "False"

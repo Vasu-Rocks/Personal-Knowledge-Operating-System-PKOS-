@@ -1,10 +1,9 @@
 import asyncpg
-import httpx
-import json
 import logging
 import uuid
 from starlette.concurrency import run_in_threadpool
-from core.config import OLLAMA_CHAT_URL, get_ollama_model
+from core.llm import LLMSettings, chat_text, extract_json, make_client
+from database.llm_settings_db import load_llm_settings
 from rag.vector.embedder import embed_text_batch
 
 logger = logging.getLogger(__name__)
@@ -63,8 +62,9 @@ async def run_community_summarizer(pool: asyncpg.Pool, user_id: str) -> dict:
     Returns {"summarised", "remaining"}; stops early (leaving the rest queued) if the LLM is unreachable.
     """
     user_uuid = uuid.UUID(user_id)
+    settings = await load_llm_settings(pool, user_id) or LLMSettings()
     done = 0
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with make_client(timeout=300.0) as client:
         while True:
             try:
                 async with pool.acquire() as conn:
@@ -82,25 +82,16 @@ async def run_community_summarizer(pool: asyncpg.Pool, user_id: str) -> dict:
                         continue
                     context = await _build_context(conn, member_ids, user_uuid)
 
-                response = await client.post(OLLAMA_CHAT_URL, json={
-                    "model": get_ollama_model(),
-                    "stream": False,
-                    "format": "json",
-                    "keep_alive": "15m",
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": context},
-                    ],
-                    "options": {"temperature": 0.2, "num_ctx": 4096, "num_predict": 400},
-                })
-                response.raise_for_status()
-                content = response.json().get("message", {}).get("content", "{}")
+                content = await chat_text(settings, [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": context},
+                ], json_mode=True, temperature=0.2, num_ctx=4096, max_tokens=400, client=client)
 
-                try:
-                    result = json.loads(content)
+                result = extract_json(content)
+                if result is not None:
                     title = str(result.get("title") or "Unnamed Community").strip()
                     summary = str(result.get("summary") or "").strip() or "No summary generated."
-                except Exception:
+                else:
                     title, summary = "Unnamed Community", content.strip() or "No summary generated."
                 title = title[:255]
 
@@ -115,7 +106,7 @@ async def run_community_summarizer(pool: asyncpg.Pool, user_id: str) -> dict:
                 logger.info(f"Summarised community {community_id}: '{title}'")
 
             except Exception:
-                logger.exception("Community summarizer stopped (LLM offline?); remaining communities stay queued")
+                logger.exception(f"Community summarizer stopped ({settings.label} unavailable?); remaining communities stay queued")
                 break
 
     async with pool.acquire() as conn:

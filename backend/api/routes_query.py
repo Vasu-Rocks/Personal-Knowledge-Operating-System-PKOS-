@@ -6,6 +6,8 @@ import logging
 import json
 import asyncpg
 from api.dependencies import get_current_user, get_db
+from core.llm import LLMSettings
+from database.llm_settings_db import load_llm_settings
 
 # Phase 3 Core Integrations
 from rag.vector.embedder import embed_query
@@ -40,18 +42,16 @@ async def process_query_stream(
 
     active_user_id = current_user["user_id"]
     
-    # Extract stateless API keys from request headers
-    llm_provider = request.headers.get("x-llm-provider", "ollama")
-    ollama_model = request.headers.get("x-ollama-model", "llama3.2")
-    openai_key = request.headers.get("x-openai-key")
-    anthropic_key = request.headers.get("x-anthropic-key")
-
-    settings = {
-        "provider": llm_provider,
-        "ollama_model": ollama_model,
-        "openai_key": openai_key,
-        "anthropic_key": anthropic_key
-    }
+    # Saved per-user settings (Settings page) win. The X-LLM-* headers are the legacy path for clients that
+    # still keep provider and keys in the browser; they are used only until the user saves settings.
+    settings = await load_llm_settings(pool, active_user_id)
+    if settings is None:
+        settings = LLMSettings.from_dict({
+            "provider": request.headers.get("x-llm-provider"),
+            "ollama_model": request.headers.get("x-ollama-model"),
+            "openai_key": request.headers.get("x-openai-key"),
+            "anthropic_key": request.headers.get("x-anthropic-key"),
+        })
 
     try:
         query_vector_np = await run_in_threadpool(embed_query, user_query)

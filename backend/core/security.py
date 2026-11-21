@@ -12,8 +12,9 @@ def _get_secret_key() -> str:
     key = os.getenv("PKOS_SECRET_KEY")
     if key:
         return key
-    if os.getenv("ENV", "dev").lower() == "prod":
-        raise RuntimeError("PKOS_SECRET_KEY must be set when ENV=prod.")
+    env = os.getenv("ENV", "dev").strip().lower()
+    if env in ("prod", "desktop"):
+        raise RuntimeError(f"PKOS_SECRET_KEY must be set when ENV={env}.")
     # Dev fallback: random key (tokens reset on restart, but app works)
     fallback = secrets.token_hex(32)
     import logging

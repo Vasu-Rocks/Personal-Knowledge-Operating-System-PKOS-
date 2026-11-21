@@ -3,8 +3,9 @@ import logging
 import uuid
 
 import asyncpg
-import httpx
 
+from core.llm import LLMError, LLMSettings, make_client
+from database.llm_settings_db import load_llm_settings
 from rag.graph.communities import rebuild_communities
 from rag.graph.extractor import extract_chunk
 from rag.graph.reconciler import reconcile_graph_chunk
@@ -46,6 +47,9 @@ class GraphWorker:
                 await self._task
             except asyncio.CancelledError:
                 pass
+
+    def is_running(self) -> bool:
+        return self._task is not None and not self._task.done()
 
     def notify(self):
         """Wake the worker after a job was queued."""
@@ -129,13 +133,13 @@ class GraphWorker:
                     SELECT doc_id FROM graph_jobs WHERE status = 'PENDING'
                     ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
                 )
-                RETURNING doc_id
+                RETURNING doc_id, user_id
             """)
             if row is None:
                 return None
             await conn.execute("UPDATE documents SET extraction_status = 'PROCESSING' WHERE doc_id = $1", row["doc_id"])
             filename = await conn.fetchval("SELECT filename FROM documents WHERE doc_id = $1", row["doc_id"])
-            return {"doc_id": row["doc_id"], "filename": filename}
+            return {"doc_id": row["doc_id"], "user_id": row["user_id"], "filename": filename}
 
     async def _set_status(self, doc_id: uuid.UUID, status: str, error: str | None = None):
         async with self.pool.acquire() as conn:
@@ -155,7 +159,9 @@ class GraphWorker:
         logger.info(f"Graph extraction started: {filename} ({doc_id})")
         previous_context = ""
         try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
+            # The document owner's provider (Ollama, OpenAI or Anthropic); read per job so a change applies to the next one.
+            settings = await load_llm_settings(self.pool, str(job["user_id"])) or LLMSettings()
+            async with make_client(timeout=180.0) as client:
                 while True:
                     async with self.pool.acquire() as conn:
                         rows = await conn.fetch("""
@@ -171,7 +177,7 @@ class GraphWorker:
                             logger.info(f"Graph extraction stopped (paused or deleted): {filename}")
                             return True
 
-                        data = await extract_chunk(client, row["text_content"], filename, previous_context)
+                        data = await extract_chunk(client, row["text_content"], filename, previous_context, settings)
                         try:
                             if data:
                                 await reconcile_graph_chunk(self.pool, str(doc_id), row["chunk_id"], data)
@@ -203,6 +209,10 @@ class GraphWorker:
 
         except asyncio.CancelledError:
             raise
+        except LLMError as e:
+            logger.error(f"Graph extraction failed for {filename}: {e}")
+            await self._set_status(doc_id, "FAILED", str(e)[:500])
+            return False
         except Exception as e:
             logger.exception(f"Graph extraction failed for {filename}")
             await self._set_status(doc_id, "FAILED", f"{type(e).__name__}: {e}"[:500])

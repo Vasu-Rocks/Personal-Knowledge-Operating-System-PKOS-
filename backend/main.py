@@ -12,12 +12,15 @@ try:
 except ImportError:
     pass  # python-dotenv not installed; rely on shell environment variables
 
+import asyncio
+
 from core import config
 from database.postgres_core import init_db_pool
 from rag.graph.worker import GraphWorker
+from rag.vector import embedder
 
-# Set up global log format safely buffering to stdout seamlessly
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# stdout, plus logs/api.log under PKOS_DATA_DIR when running as the desktop app
+config.configure_logging()
 logger = logging.getLogger(__name__)
 
 # Import Modular Pipelines
@@ -25,6 +28,8 @@ from api import routes_ingest
 from api import routes_query
 from api import routes_auth
 from api import routes_graph
+from api import routes_settings
+from api import routes_llm
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,6 +45,9 @@ async def lifespan(app: FastAPI):
     # Single background worker for graph extraction; resumes jobs interrupted by a restart.
     app.state.graph_worker = GraphWorker(pool)
     await app.state.graph_worker.start()
+    # Load the embedding model (torch) in a thread so /health answers immediately; uploads/queries wait for it.
+    if config.EMBED_WARMUP:
+        asyncio.get_running_loop().run_in_executor(None, embedder.warm_up)
     yield
     await app.state.graph_worker.stop()
     # Safely close down connections on system tear down
@@ -75,6 +83,10 @@ app.include_router(routes_auth.router, prefix="/api/v1", tags=["Auth"])
 # Phase 4 Stage 3: Graph RAG
 app.include_router(routes_graph.router, prefix="/api/v1", tags=["Graph"])
 
+# Desktop app: per-user AI provider settings, model management, system status
+app.include_router(routes_settings.router, prefix="/api/v1", tags=["Settings"])
+app.include_router(routes_llm.router, prefix="/api/v1", tags=["AI"])
+
 
 
 @app.get("/health")
@@ -93,7 +105,8 @@ async def health(response: Response):
         pass  # Ollama is optional (cloud providers), so this only degrades the status
     if not db_ok:
         response.status_code = 503
-    return {"status": "ok" if db_ok else "error", "database": db_ok, "ollama": ollama_ok}
+    return {"status": "ok" if db_ok else "error", "database": db_ok, "ollama": ollama_ok,
+            "embedder_ready": embedder.is_ready()}
 
 
 

@@ -10,6 +10,7 @@ import pytest
 # Must be set before any module reads them at import time. The API tests run against a throwaway
 # pgvector database (default: the Docker container from the README on port 5434), never the dev DB.
 os.environ.setdefault("PKOS_SECRET_KEY", "test-secret-key-for-pytest-0123456789abcdef")
+os.environ["PKOS_EMBED_WARMUP"] = "false"  # embeddings are faked; never load the real model in tests
 os.environ["POSTGRES_HOST"] = os.getenv("TEST_POSTGRES_HOST", "localhost")
 os.environ["POSTGRES_PORT"] = os.getenv("TEST_POSTGRES_PORT", "5434")
 os.environ["POSTGRES_DB"] = os.getenv("TEST_POSTGRES_DB", "pkos_test")

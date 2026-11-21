@@ -78,6 +78,16 @@ Follow-ups found by the spikes:
 - Installed size estimate updated: Electron 90 + backend 723 + Postgres 125 + Ollama 753 ≈ 1.7 GB before trimming.
 
 ### Phase 1: Backend changes for app mode
+
+**Status (2026-11-21): done.** D1-1 to D1-7 implemented; 145 backend tests pass (52 new), run against the portable Postgres
+from the spike instead of Docker. Changes vs the original plan: API keys are encrypted with Fernet (`cryptography`)
+using a key derived from `PKOS_SECRET_KEY` (or `PKOS_SETTINGS_KEY`) instead of keyring/DPAPI, so the same code works in
+Docker; on the desktop, Electron protects that secret with `safeStorage` (DPAPI) in Phase 2. The embedding model is
+not bundled yet (D1-2's `PKOS_EMBED_MODEL` accepts a local folder; Phase 4 ships it). Importing the app no longer loads
+torch (19 s → 2.4 s); the model warms up in a background thread after startup. The legacy `X-LLM-*` headers still work
+until a user saves settings (removed in D3-5). New endpoints: `GET/PUT /settings/llm`, `POST /settings/llm/test`,
+`GET /llm/status`, `GET /ollama/models`, `POST /ollama/pull` (SSE), `DELETE /ollama/models/{name}`, `GET /system/status`.
+
 - D1-1 Config: a `PKOS_DATA_DIR` setting; logs to file; embedding model cache under the data dir; `ENV=desktop` behaves like prod (requires secret, no debug).
 - D1-2 Embeddings: keep sentence-transformers; build with CPU-only torch; ship the bge-small model files inside the app (no download on first run, works offline); point the cache at the bundled folder.
 - D1-3 LLM provider layer: one `LLMClient` interface (`chat`, `chat_stream`, `chat_json`) with Ollama, OpenAI and Anthropic implementations. Today only answer generation supports cloud providers; graph extraction (`extractor.py`) and community summaries (`summarizer.py`) call Ollama directly. Route all three through the client so "API only" users get a working knowledge graph.
