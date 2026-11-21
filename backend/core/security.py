@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_TTL_MINUTES", str(60 * 24 * 30)))  # default 30 days
 
 def _get_secret_key() -> str:
     key = os.getenv("PKOS_SECRET_KEY")

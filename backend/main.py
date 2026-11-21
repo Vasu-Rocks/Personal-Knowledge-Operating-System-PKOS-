@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ try:
 except ImportError:
     pass  # python-dotenv not installed; rely on shell environment variables
 
+from core import config
 from database.postgres_core import init_db_pool
 from rag.graph.worker import GraphWorker
 
@@ -55,7 +57,7 @@ app = FastAPI(
 # Structurally locks down origin requests tightly to the React Sandbox ensuring absolute system security.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"], 
     allow_headers=["*"],
@@ -76,8 +78,22 @@ app.include_router(routes_graph.router, prefix="/api/v1", tags=["Graph"])
 
 
 @app.get("/health")
-def root():
-    return {"status": "PKOS V2 Operating Natively"}
+async def health(response: Response):
+    """Reports database and Ollama reachability; 503 if the database is down."""
+    db_ok = ollama_ok = False
+    try:
+        async with app.state.pool.acquire() as conn:
+            db_ok = (await conn.fetchval("SELECT 1")) == 1
+    except Exception:
+        logger.exception("Health check: database unreachable")
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            ollama_ok = (await client.get(f"{config.OLLAMA_BASE_URL}/api/tags")).status_code == 200
+    except Exception:
+        pass  # Ollama is optional (cloud providers), so this only degrades the status
+    if not db_ok:
+        response.status_code = 503
+    return {"status": "ok" if db_ok else "error", "database": db_ok, "ollama": ollama_ok}
 
 
 

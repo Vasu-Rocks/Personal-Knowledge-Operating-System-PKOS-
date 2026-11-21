@@ -93,7 +93,7 @@ pkos_v2/
 └─ docs/                       ← these documents
 ```
 
-Not present: root README, `.env.example`, Dockerfile/compose, migrations, test suite, CI.
+Not present: Dockerfile/compose, migrations, test suite, CI. Present: root `README.md`, `backend/.env.example`, `frontend/.env.example`, `.gitignore`, `.gitattributes`.
 
 ## 4. Components
 
@@ -158,7 +158,7 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 
 | Method | Path | Auth | Request | Response | Status |
 |---|---|---|---|---|---|
-| GET | `/health` | – | – | `{status}` | ✅ |
+| GET | `/health` | – | – | `{status, database, ollama}` (503 if DB down) | ✅ |
 | POST | `/register` | – | JSON `{email, username, name, password}` | `{access_token, token_type}` | ✅ |
 | POST | `/login` | – | form `username`, `password` | `{access_token, token_type}` | ✅ |
 | GET | `/me` | ✔ | – | `{user_id, email, username, name}` | ✅ |
@@ -263,6 +263,9 @@ Currently read from environment (with defaults):
 | `POSTGRES_HOST` / `POSTGRES_PORT` | `localhost` / `5433` | postgres_core.py |
 | `OLLAMA_API_URL` | `http://localhost:11434/api/chat` | generator.py (answers only) |
 | `OLLAMA_MODEL` | `llama3.2` | generator, extractor, summarizer |
+| `PKOS_SECRET_KEY` | random per start | security.py |
+| `CORS_ORIGINS` | `http://localhost:3000` | main.py |
+| `TOKEN_TTL_MINUTES` | `43200` | security.py |
 
 Hard-coded today (to be moved to env/config module): `SECRET_KEY`, token TTL, CORS origin, Ollama `/api/generate` URL in extractor & summarizer, retrieval params (k=3, max_distance=0.35, seeds=2, max_edges=20), context caps (4,000 / 6,000 chars), cloud model names, frontend API base URL.
 
@@ -331,10 +334,10 @@ Expected scale: 1–5 users, up to ~10k documents / ~1M chunks per machine.
 
 | # | Item | Location | Severity |
 |---|---|---|---|
-| TD-1 | Hard-coded JWT secret | `core/security.py` | High |
+| TD-1 | ~~Hard-coded JWT secret~~ now `PKOS_SECRET_KEY` env (random dev fallback; no prod-mode refusal yet) | `core/security.py` | Med |
 | TD-2 | ~~Summarizer not user-scoped; f-string SQL; embeds on event loop; query-prefix embedding~~ fixed in G0 | `rag/graph/summarizer.py` | High |
-| TD-3 | Schema not created on startup; destructive legacy-drop migration | `database/postgres_core.py` | High |
-| TD-4 | ~~`networkx`, `httpx` missing~~ added in G0; `faiss-cpu` unused; nothing pinned | `requirements.txt` | High |
+| TD-3 | ~~Schema not created on startup~~ now auto-created in lifespan; destructive legacy-drop removed; numbered migrations still pending | `database/postgres_core.py` | High |
+| TD-4 | ~~deps missing / unpinned~~ added, `faiss-cpu` removed, versions pinned | `requirements.txt` | High |
 | TD-5 | Seed-only graph nodes dropped from prompt (needs links) and UI (renders only if links) | `prompt_builder.py`, `Dashboard.jsx` | Med |
 | TD-6 | Context labels `--- Result N ---` vs prompt citation `[Chunk N]` | `retriever.py` | Med |
 | TD-7 | Graph state is global, not per message | `Dashboard.jsx` | Med |
