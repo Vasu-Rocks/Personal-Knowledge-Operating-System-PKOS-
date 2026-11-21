@@ -93,7 +93,7 @@ pkos_v2/
 └─ docs/                       ← these documents
 ```
 
-Not present: Dockerfile/compose, migrations, test suite, CI. Present: root `README.md`, `backend/.env.example`, `frontend/.env.example`, `.gitignore`, `.gitattributes`.
+Also present: `docker-compose.yml` + Dockerfiles, `.github/workflows/ci.yml`, numbered SQL migrations in `backend/database/migrations/`, pytest suite in `backend/tests/` (93 tests), Vitest suite in `frontend/src/test/`. Present: root `README.md`, `backend/.env.example`, `frontend/.env.example`, `.gitignore`, `.gitattributes`.
 
 ## 4. Components
 
@@ -266,6 +266,7 @@ Currently read from environment (with defaults):
 | `PKOS_SECRET_KEY` | random per start | security.py |
 | `CORS_ORIGINS` | `http://localhost:3000` | main.py |
 | `TOKEN_TTL_MINUTES` | `43200` | security.py |
+| `ENV` | `dev` (`prod` refuses to start without `PKOS_SECRET_KEY`) | security.py |
 
 Hard-coded today (to be moved to env/config module): `SECRET_KEY`, token TTL, CORS origin, Ollama `/api/generate` URL in extractor & summarizer, retrieval params (k=3, max_distance=0.35, seeds=2, max_edges=20), context caps (4,000 / 6,000 chars), cloud model names, frontend API base URL.
 
@@ -339,13 +340,13 @@ Expected scale: 1–5 users, up to ~10k documents / ~1M chunks per machine.
 | TD-3 | ~~Schema not created on startup~~ now auto-created in lifespan; destructive legacy-drop removed; numbered migrations still pending | `database/postgres_core.py` | High |
 | TD-4 | ~~deps missing / unpinned~~ added, `faiss-cpu` removed, versions pinned | `requirements.txt` | High |
 | TD-5 | Seed-only graph nodes dropped from prompt (needs links) and UI (renders only if links) | `prompt_builder.py`, `Dashboard.jsx` | Med |
-| TD-6 | Context labels `--- Result N ---` vs prompt citation `[Chunk N]` | `retriever.py` | Med |
+| TD-6 | ~~Context labels vs citations~~ context blocks are now `[Chunk N]` | `retriever.py` | Med |
 | TD-7 | Graph state is global, not per message | `Dashboard.jsx` | Med |
 | TD-8 | ~~`extraction_status` not exposed~~ graph status/progress now in `GET /documents` and the vault (G2); UI "Indexed" label is still static | `vector_db_pg.py`, `VaultView.jsx` | Med |
-| TD-9 | Sync embedding during upload request | `routes_ingest.py` | Med |
+| TD-9 | ~~Sync embedding during upload request~~ upload returns 202; embedding and indexing run in a background task | `routes_ingest.py` | Med |
 | TD-10 | ~~Extractor/summarizer hard-code Ollama URL~~ fixed in G0 | `rag/graph/*` | Low |
-| TD-11 | Non-stream `/query` ignores providers, uses blocking `requests` | `routes_query.py`, `generator.py` | Low |
-| TD-12 | API base URL hard-coded in frontend | 3 files | Low |
-| TD-13 | Raw exception text in HTTP errors | `routes_ingest.py`, `routes_graph.py` | Low |
-| TD-14 | `chunk_entity_junction.mention_snippet` never written (edge snippets now go to `relationship_mentions.snippet`) | `reconciler.py` | Low |
-| TD-15 | URLs replaced with `[URL]` during cleaning | `cleaner.py` | Low |
+| TD-11 | ~~Non-stream `/query`~~ endpoint removed; `/query/stream` is the single generation path | `routes_query.py` | Low |
+| TD-12 | ~~API base URL hard-coded in frontend~~ all components use `src/api.js` (`VITE_API_BASE_URL`) | frontend | Low |
+| TD-13 | ~~Raw exception text in HTTP errors~~ generic messages, details in server log; LLM error tokens no longer echo exceptions | `routes_*`, `generator.py` | Low |
+| TD-14 | ~~`mention_snippet` never written~~ column dropped by migration 0001 | `postgres_core.py` | Low |
+| TD-15 | ~~URLs replaced with `[URL]`~~ URLs are now kept | `cleaner.py` | Low |

@@ -28,6 +28,15 @@ npm run dev                 # http://localhost:3000
 
 Check `http://localhost:8000/health`: it reports `database` and `ollama` status separately (503 if the database is down).
 
+## Run with Docker
+Runs Postgres+pgvector, the API and the web UI together. Ollama stays on your machine (GPU access).
+```bash
+cp .env.example .env     # set PKOS_SECRET_KEY
+docker compose up --build   # UI: http://localhost:3000, API: http://localhost:8000
+```
+The API container runs with `ENV=prod`, so it refuses to start without `PKOS_SECRET_KEY`. The embedding model (~130 MB) downloads on first use into a volume.
+The API URL is baked into the web image at build time (`VITE_API_BASE_URL`); rebuild after changing it.
+
 ## Configuration
 All backend settings are environment variables; see `backend/.env.example` (database, Ollama, secret key, CORS origins, token lifetime, graph tuning).
 

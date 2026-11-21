@@ -25,6 +25,13 @@ PKOS is **not** a greenfield build. Verified state:
 
 The plan therefore starts with **stabilisation**, then closes MVP gaps, then extends Graph RAG.
 
+### Status update (2026-11-21)
+
+Done since the baseline: M0 (except moving the scripts into `backend/scripts/`), M1-2/M1-3/M1-4/M1-5, M2-1 to M2-13 (M2-10 by deleting `/query`),
+M3-1 to M3-4 and M3-6 (background indexing and a resumable single worker), M5-1 to M5-3, M5-4 (API tests incl. user isolation), M5-5 (auth only), M5-6, M5-8, and M6-1/M6-2
+(compose and CI are written; the backend image build is verified separately, see CHANGELOG). Still open: M1-1 (pydantic-settings module), M3-5, M3-7, M3-8, M4-1 to M4-12
+(frontend MVP polish, incl. the Dashboard refactor), M5-2 (fake Ollama server), M5-7 (eval corpus), M6-3 (changelog/tag).
+
 ## 2. Priorities
 
 - **P0 — must for MVP** (security, correctness, isolation, reproducible setup)
