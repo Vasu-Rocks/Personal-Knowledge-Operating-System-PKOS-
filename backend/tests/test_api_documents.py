@@ -47,7 +47,6 @@ def test_delete_unknown_id_is_404(client, make_user):
     assert client.delete(f"{API}/documents/{uuid.uuid4()}", headers=u.headers).status_code == 404
 
 
-@pytest.mark.xfail(strict=True, reason="M2-6: a malformed UUID currently surfaces as 500 instead of 404/422")
 def test_delete_malformed_id_is_a_client_error(client, make_user):
     u = make_user("baddel")
     r = client.delete(f"{API}/documents/not-a-uuid", headers=u.headers)

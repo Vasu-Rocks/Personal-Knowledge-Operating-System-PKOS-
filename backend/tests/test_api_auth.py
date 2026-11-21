@@ -68,9 +68,8 @@ def test_valid_token_for_unknown_user_rejected(client):
     assert client.get(f"{API}/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
 
-# --- Known gaps from the development plan (M2-7). strict=True: remove the marker once fixed. ---
+# --- Registration rules (M2-7) ---
 
-@pytest.mark.xfail(strict=True, reason="M2-7: password minimum length not enforced yet")
 def test_short_password_rejected(client):
     r = client.post(f"{API}/register", json={
         "email": f"s_{uuid.uuid4().hex[:6]}@example.com", "username": "s_" + uuid.uuid4().hex[:6],
@@ -78,8 +77,29 @@ def test_short_password_rejected(client):
     assert r.status_code == 400
 
 
-@pytest.mark.xfail(strict=True, reason="M2-7: emails are not lower-cased before lookup")
 def test_email_lookup_is_case_insensitive(client, make_user):
     u = make_user("frank")
     r = client.post(f"{API}/login", data={"username": u.email.upper(), "password": u.password})
     assert r.status_code == 200
+
+
+@pytest.mark.parametrize("username", ["ab", "has space", "bad/char", "x" * 33])
+def test_invalid_username_rejected(client, username):
+    r = client.post(f"{API}/register", json={
+        "email": f"v_{uuid.uuid4().hex[:6]}@example.com", "username": username,
+        "name": "V", "password": "correct-horse-battery"})
+    assert r.status_code == 400
+
+
+def test_email_is_stored_lowercase_and_duplicates_ignore_case(client, make_user):
+    u = make_user("gina")
+    r = client.post(f"{API}/register", json={
+        "email": u.email.upper(), "username": "dup_" + uuid.uuid4().hex[:6],
+        "name": "G", "password": "correct-horse-battery"})
+    assert r.status_code == 400
+    assert client.get(f"{API}/me", headers=u.headers).json()["email"] == u.email.lower()
+
+
+def test_token_with_non_uuid_subject_is_401_not_500(client):
+    token = security.create_access_token({"sub": "not-a-uuid"})
+    assert client.get(f"{API}/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401

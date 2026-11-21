@@ -13,7 +13,7 @@ async def create_user_async(pool: asyncpg.Pool, email: str, username: str, name:
 async def get_user_by_email_async(pool: asyncpg.Pool, email: str) -> dict:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT user_id, email, username, name, hashed_password FROM users WHERE email = $1",
+            "SELECT user_id, email, username, name, hashed_password FROM users WHERE lower(email) = lower($1)",
             email
         )
     if row:

@@ -26,7 +26,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme), pool: asyncpg.Po
     except jwt.PyJWTError:
         raise credentials_exception
         
-    user = await get_user_by_id_async(pool, user_id)
+    try:
+        user = await get_user_by_id_async(pool, user_id)
+    except ValueError:
+        raise credentials_exception
     if user is None:
         raise credentials_exception
     return user

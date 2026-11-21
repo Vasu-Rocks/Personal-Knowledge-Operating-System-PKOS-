@@ -78,14 +78,14 @@ PKOS has exactly two roles. There is no administrator role.
 | FR-AUTH-06 | If a unique-constraint race occurs on insert, the system SHALL return HTTP 409. | ✅ |
 | FR-AUTH-07 | Passwords SHALL be hashed with bcrypt (random salt); plaintext SHALL never be stored or logged. | ✅ |
 | FR-AUTH-08 | Passwords longer than 71 UTF-8 bytes SHALL be rejected at registration (400 "Password is too long.") and SHALL fail verification at login. | ✅ |
-| FR-AUTH-09 | Passwords SHALL be at least 8 characters. | ❌ |
+| FR-AUTH-09 | Passwords SHALL be at least 8 characters. | ✅ |
 | FR-AUTH-10 | Login via `POST /api/v1/login` (form-encoded `username`, `password`) SHALL accept either email or username in the `username` field (email looked up first). | ✅ |
 | FR-AUTH-11 | Invalid login SHALL return 401 with a generic message that does not reveal whether the account exists. | ✅ |
 | FR-AUTH-12 | Access tokens SHALL be HS256 JWTs with `sub` = user UUID and `exp` = issue time + 30 days. | ✅ |
 | FR-AUTH-13 | The JWT signing secret SHALL be read from an environment variable (`PKOS_SECRET_KEY`); the API SHALL refuse to start if it is unset outside dev mode. | ❌ (hard-coded) |
 | FR-AUTH-14 | `GET /api/v1/me` SHALL return `{user_id, email, username, name}` and SHALL NOT return the password hash. | ✅ |
 | FR-AUTH-15 | Every protected endpoint SHALL return 401 with `WWW-Authenticate: Bearer` when the token is missing, malformed, expired, or references a non-existent user. | ✅ |
-| FR-AUTH-16 | Usernames SHOULD be restricted to `[A-Za-z0-9_.-]{3,32}`; name SHOULD be 1–100 chars after trimming. | ❌ |
+| FR-AUTH-16 | Usernames SHOULD be restricted to `[A-Za-z0-9_.-]{3,32}`; name SHOULD be 1–100 chars after trimming. | ✅ |
 | FR-AUTH-17 | Login SHOULD be rate-limited (e.g., 10 failed attempts / 15 min per identifier). | ❌ |
 
 ### 3.2 Document ingestion (ING)
@@ -120,7 +120,7 @@ PKOS has exactly two roles. There is no administrator role.
 | FR-DOC-03 | `DELETE /api/v1/documents/{doc_id}` SHALL delete only if the document belongs to the caller; otherwise return 404 "Document not found." (currently 400 "…or access denied"). | 🟡 |
 | FR-DOC-04 | Deleting a document SHALL cascade to its chunks and junction rows; entities no longer referenced by any chunk SHALL be deleted (DB trigger), which cascades their relationships. | ✅ |
 | FR-DOC-05 | After deletion, communities whose members no longer exist SHOULD be marked stale or deleted. | ❌ |
-| FR-DOC-06 | An invalid UUID in the path SHALL return 422/404, not 500. | 🟡 (raises ValueError → 400) |
+| FR-DOC-06 | An invalid UUID in the path SHALL return 422/404, not 500. | ✅ |
 
 ### 3.4 Query & answer generation (QRY)
 
@@ -244,7 +244,7 @@ PKOS has exactly two roles. There is no administrator role.
 | Field | Rule | Where |
 |---|---|---|
 | email | contains `@`, domain contains `.`, ≤255 | backend ✅; `type=email` in UI ✅ |
-| username | non-empty after trim, ≤255 (target: regex FR-AUTH-16) | backend 🟡 |
+| username | non-empty after trim, ≤255 (target: regex FR-AUTH-16) | backend ✅ |
 | name | required (target: 1–100 chars) | UI required ✅; backend trims only |
 | password | ≤71 bytes ✅; ≥8 chars ❌ | backend |
 | file | extension whitelist, ≤50 MB | backend ✅; UI `accept` ✅ |

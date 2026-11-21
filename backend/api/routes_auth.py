@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
+import re
 import asyncpg
 from database.auth_db_pg import (
     get_user_by_username_async,
@@ -11,6 +12,9 @@ from core.security import verify_password, get_password_hash, create_access_toke
 from api.dependencies import get_db, get_current_user
 
 router = APIRouter()
+
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+MIN_PASSWORD_LENGTH = 8
 
 class SetupRequest(BaseModel):
     email: str
@@ -33,8 +37,17 @@ async def register(user_data: SetupRequest, pool: asyncpg.Pool = Depends(get_db)
     if not username_clean:
         raise HTTPException(status_code=400, detail="Username cannot be empty")
         
+    email = user_data.email.strip().lower()
+    if not USERNAME_RE.match(username_clean):
+        raise HTTPException(status_code=400, detail="Username must be 3-32 characters: letters, digits, '_', '.' or '-'.")
+    name_clean = user_data.name.strip()
+    if not 1 <= len(name_clean) <= 100:
+        raise HTTPException(status_code=400, detail="Name must be 1-100 characters.")
+    if len(user_data.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+
     # 3. Check if email already registered
-    if await get_user_by_email_async(pool, user_data.email):
+    if await get_user_by_email_async(pool, email):
         raise HTTPException(status_code=400, detail="Email is already registered")
 
     # 4. Check if username already registered
@@ -49,9 +62,9 @@ async def register(user_data: SetupRequest, pool: asyncpg.Pool = Depends(get_db)
     try:
         user_id = await create_user_async(
             pool=pool,
-            email=user_data.email,
+            email=email,
             username=username_clean,
-            name=user_data.name.strip(),
+            name=name_clean,
             hashed_password=hashed_password
         )
     except asyncpg.UniqueViolationError:

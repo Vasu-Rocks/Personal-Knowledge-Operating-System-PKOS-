@@ -47,3 +47,9 @@ def test_graph_status_is_per_user(client, make_user):
     s = client.get(f"{API}/graph/status", headers=b.headers)
     assert s.status_code == 200
     assert s.json()["entities"] == 0 and s.json()["active_jobs"] == 0
+
+
+def test_malformed_job_ids_are_422(client, make_user):
+    u = make_user("alice")
+    for action in ("start", "pause"):
+        assert client.post(f"{API}/graph/jobs/not-a-uuid/{action}", headers=u.headers).status_code == 422

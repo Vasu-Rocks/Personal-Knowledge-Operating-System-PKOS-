@@ -136,13 +136,13 @@ async def ingest_document(
 
 @router.delete("/documents/{doc_id}")
 async def delete_document(
-    doc_id: str,
+    doc_id: uuid.UUID,
     current_user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_db)
 ):
     active_user_id = current_user["user_id"]
     try:
-        await delete_document_async(pool, active_user_id, doc_id)
+        await delete_document_async(pool, active_user_id, str(doc_id))
         return {"message": "Document and all associated data deleted successfully."}
     except Exception as e:
         # Only specific "not found" errors become 404; everything else is 400
