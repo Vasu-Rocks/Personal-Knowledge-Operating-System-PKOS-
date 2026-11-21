@@ -154,7 +154,12 @@ worked because no migration was required); they are now bundled and the backend 
 shipped next to them. Verified with the unpacked build (`win-unpacked`, separate data folder, bundled Ollama): all
 services start from the app folder, both migrations applied, the bundled embedding model loads offline in 0.4 s with
 no Hugging Face requests, a document indexes, the missing chat model is reported in plain words, quit stops every
-child. Open: installing/uninstalling the NSIS installer itself (D6-1), app icon, signing. Licensing: PyMuPDF is
+child. Install test on this PC (silent, per user): installed in 164 s to `%LOCALAPPDATA%\Programs\PKOS` (2.0 GB),
+Start menu + desktop shortcuts and an uninstall entry; first launch reached the login screen in 29 s (new database,
+DPAPI-sealed secrets, existing Ollama reused). Uninstalling while the app was running stopped all of PKOS's processes
+(and none of the system PostgreSQL service or the user's Ollama), removed the program, shortcuts and uninstall entry,
+and kept the data folder; the stale `postmaster.pid` left by the forced stop is handled on the next start. Still open:
+the interactive "delete my data" uninstall prompt, a clean-machine test (D6-1), app icon, signing. Licensing: PyMuPDF is
 AGPL-3.0, which matters before the installer is given to anyone else.
 
 ### Phase 5: Data safety and maintenance
