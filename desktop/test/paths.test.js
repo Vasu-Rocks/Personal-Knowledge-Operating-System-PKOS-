@@ -23,6 +23,17 @@ test('dev run uses repo runtimes and a separate data folder', () => {
   assert.equal(p.webDir, path.join('D:\\repo', 'frontend', 'dist'));
 });
 
+test('initdb scratch folder is the first plain-ASCII candidate', () => {
+  const { asciiScratchDir, isAscii } = require('../src/services');
+  assert.equal(isAscii('C:\\Users\\Jürgen'), false);
+  assert.equal(asciiScratchDir({ dataDir: 'C:\\Users\\vasu\\AppData\\Local\\PKOS', tmpDir: 'C:\\T', env: {} }),
+    path.join('C:\\Users\\vasu\\AppData\\Local\\PKOS', '.initdb'));
+  assert.equal(asciiScratchDir({ dataDir: 'C:\\Users\\Jürgen\\AppData\\Local\\PKOS', tmpDir: 'C:\\Users\\Jürgen\\Temp',
+    env: { ProgramData: 'C:\\ProgramData' } }), path.join('C:\\ProgramData', 'PKOS', 'initdb'));
+  assert.equal(asciiScratchDir({ dataDir: 'C:\\Пользователь', tmpDir: 'C:\\Пользователь\\Temp',
+    env: { ProgramData: 'C:\\Данные', PUBLIC: 'C:\\Общие' } }), null);
+});
+
 test('environment overrides win', () => {
   const p = resolvePaths({
     packaged: true, resourcesPath: 'R', env: { ...env, PKOS_DATA_DIR: 'E:\\vault', PKOS_PG_DIR: 'E:\\pg', PKOS_PYTHON: 'E:\\py.exe' },

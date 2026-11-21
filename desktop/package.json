@@ -1,7 +1,7 @@
 {
   "name": "pkos-desktop",
   "productName": "PKOS",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "PKOS desktop app: runs the database, Ollama and the PKOS backend locally.",
   "author": "PKOS",
   "private": true,
@@ -26,6 +26,7 @@
     },
     "files": [
       "src/**/*",
+      "build-resources/icon.png",
       "package.json"
     ],
     "asar": true,
@@ -40,7 +41,8 @@
     "compression": "normal",
     "win": {
       "target": ["nsis"],
-      "executableName": "PKOS"
+      "executableName": "PKOS",
+      "icon": "build-resources/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -53,6 +55,8 @@
       "deleteAppDataOnUninstall": false,
       "differentialPackage": false,
       "include": "build-resources/installer.nsh",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
       "artifactName": "PKOS-Setup-${version}.exe"
     }
   }

@@ -1,0 +1,72 @@
+name: Windows installer
+
+# Builds PKOS-Setup-<version>.exe on a clean Windows runner and uploads it as a workflow artifact.
+# Runs on version tags (v0.2.0, ...) or manually from the Actions tab. It does not publish a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  installer:
+    runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      PG_VERSION: "16.13-1"         # bundled PostgreSQL major version must stay 16 (data folder compatibility)
+      OLLAMA_VERSION: "0.32.14"
+      PGVECTOR_VERSION: "0.8.1"
+      TORCH_VERSION: "2.12.0"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Python environment (CPU-only torch)
+        run: |
+          python -m venv venv
+          venv\Scripts\python -m pip install --upgrade pip
+          venv\Scripts\python -m pip install "torch==$env:TORCH_VERSION" --index-url https://download.pytorch.org/whl/cpu
+          venv\Scripts\python -m pip install -r backend\requirements.txt pyinstaller
+
+      - name: Download runtimes (PostgreSQL binaries, Ollama, embedding model)
+        run: |
+          $rt = Join-Path $env:RUNNER_TEMP "runtimes"; New-Item -ItemType Directory -Force $rt | Out-Null
+          Invoke-WebRequest "https://get.enterprisedb.com/postgresql/postgresql-$env:PG_VERSION-windows-x64-binaries.zip" -OutFile "$rt\pg.zip"
+          Expand-Archive "$rt\pg.zip" "$rt\pg"
+          Invoke-WebRequest "https://github.com/ollama/ollama/releases/download/v$env:OLLAMA_VERSION/ollama-windows-amd64.zip" -OutFile "$rt\ollama.zip"
+          Expand-Archive "$rt\ollama.zip" "$rt\ollama"
+          venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-small-en-v1.5')"
+
+      - name: Node dependencies
+        run: |
+          npm ci --prefix frontend --no-fund --no-audit
+          npm ci --prefix desktop --no-fund --no-audit
+
+      - name: Unit tests (desktop shell)
+        run: npm test --prefix desktop
+
+      - name: Build installer
+        run: >
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\build.ps1
+          -PgSource "$env:RUNNER_TEMP\runtimes\pg\pgsql"
+          -OllamaSource "$env:RUNNER_TEMP\runtimes\ollama"
+          -PgvectorVersion $env:PGVECTOR_VERSION
+
+      - name: Dependency audit of bundled binaries
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\audit-dlls.ps1 -AppDir build\installer\win-unpacked
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PKOS-Setup
+          path: build/installer/PKOS-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 14

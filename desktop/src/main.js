@@ -98,6 +98,8 @@ function hardenWebContents() {
   });
 }
 
+const APP_ICON = path.join(__dirname, '..', 'build-resources', 'icon.png');
+
 const webPreferences = {
   preload: path.join(__dirname, 'preload.js'),
   contextIsolation: true,
@@ -111,7 +113,7 @@ const webPreferences = {
 function createSplash() {
   splash = new BrowserWindow({
     width: 520, height: 420, resizable: false, frame: false, show: false, backgroundColor: '#0f1115',
-    title: 'PKOS', webPreferences,
+    title: 'PKOS', icon: APP_ICON, webPreferences,
   });
   splash.loadFile(path.join(__dirname, 'splash', 'splash.html'));
   splash.once('ready-to-show', () => splash.show());
@@ -121,7 +123,7 @@ function createSplash() {
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1400, height: 900, minWidth: 960, minHeight: 640, show: false, backgroundColor: '#0f1115',
-    title: 'PKOS', autoHideMenuBar: true, webPreferences,
+    title: 'PKOS', autoHideMenuBar: true, icon: APP_ICON, webPreferences,
   });
   mainWindow.loadURL(paths.devUrl || `${APP_ORIGIN}/index.html`);
   mainWindow.once('ready-to-show', () => {

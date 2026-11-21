@@ -33,6 +33,13 @@ powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Skip web,backend,p
 
 Sizes (2026-11-21): web 1 MB, pkos-api 671 MB, pgsql 107 MB, ollama 753 MB, model 128 MB; 1.66 GB staged.
 
+## Other scripts
+- `packaging\audit-dlls.ps1 -AppDir build\installer\win-unpacked`: fails if any bundled binary imports a DLL that is
+  neither shipped nor part of a clean Windows (e.g. the VC++ runtime). Runs in the release workflow.
+- `packaging\make-icon.ps1`: regenerates `desktop\build-resources\icon.ico`/`icon.png`.
+- `.github/workflows/release.yml`: builds the installer on a clean GitHub Windows runner on `v*` tags or manually,
+  downloading the official PostgreSQL 16 binaries and Ollama; the installer is a workflow artifact.
+
 ## Testing a build without installing
 ```powershell
 $env:PKOS_DATA_DIR = "$env:LOCALAPPDATA\PKOS-packtest"   # keep the real vault folder untouched
@@ -42,7 +49,6 @@ build\installer\win-unpacked\PKOS.exe
 
 ## Not done yet
 - Code signing (installs show the SmartScreen "unknown publisher" warning; "More info" → "Run anyway").
-- An app icon (the default Electron icon is used).
 - Auto-update.
 - PyMuPDF is AGPL-3.0: distributing the installer to others requires AGPL-compatible terms for PKOS (or a
   commercial PyMuPDF license, or replacing it with a permissively licensed PDF library).

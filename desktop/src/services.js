@@ -8,6 +8,24 @@ const path = require('path');
 const { ManagedProcess, killTree, openLog, run } = require('./process');
 const { getFreePort, httpGet, waitFor } = require('./net-util');
 
+const isAscii = (p) => /^[\x20-\x7e]*$/.test(p);
+
+/**
+ * initdb puts the path of its share folder into SQL (a COPY ... FROM '<share>\postgres.description'), and Windows
+ * passes that path in the ANSI codepage: with an install folder like C:\Users\Jürgen\... it fails with "invalid byte
+ * sequence for encoding UTF8". The server itself runs fine from such a folder. So when the install path is not plain
+ * ASCII, initdb gets a temporary ASCII copy of share (-L). Returns the first ASCII candidate folder, or null.
+ */
+function asciiScratchDir({ dataDir, tmpDir = require('os').tmpdir(), env = process.env }) {
+  const candidates = [
+    path.join(dataDir, '.initdb'),
+    path.join(tmpDir, 'pkos-initdb'),
+    path.join(env.ProgramData || 'C:\\ProgramData', 'PKOS', 'initdb'),
+    path.join(env.PUBLIC || 'C:\\Users\\Public', 'PKOS-initdb'),
+  ];
+  return candidates.find(isAscii) || null;
+}
+
 const RESTART_LIMIT = 3;
 const RESTART_WINDOW_MS = 10 * 60 * 1000;
 
@@ -35,14 +53,24 @@ class PostgresService {
     fs.mkdirSync(path.dirname(this.paths.pgData), { recursive: true });
     const pwfile = path.join(this.paths.dataDir, `.pw-${process.pid}`);
     fs.writeFileSync(pwfile, this.cfg.dbPassword, { mode: 0o600 });
+    const args = ['-D', this.paths.pgData, '-U', this.cfg.dbUser, `--pwfile=${pwfile}`, '-E', 'UTF8', '--locale=C', '-A', 'scram-sha-256'];
+    let shareCopy = null;
     try {
-      const r = await run(this.bin('initdb.exe'), [
-        '-D', this.paths.pgData, '-U', this.cfg.dbUser, `--pwfile=${pwfile}`,
-        '-E', 'UTF8', '--locale=C', '-A', 'scram-sha-256',
-      ], { env: this.env, log: this.log, timeoutMs: 180000 });
+      const share = path.join(this.paths.pgBin, '..', 'share');
+      if (!isAscii(path.resolve(share))) {
+        const scratch = asciiScratchDir({ dataDir: this.paths.dataDir });
+        if (!scratch) throw new Error('PKOS is installed in a folder whose name has non-English characters, and no plain folder was found for database setup. Reinstall PKOS into a folder like C:\\PKOS.');
+        shareCopy = path.join(scratch, `share-${process.pid}`);
+        fs.rmSync(shareCopy, { recursive: true, force: true });
+        fs.cpSync(share, shareCopy, { recursive: true });
+        args.push('-L', shareCopy);
+        this.log.write(`[pkos] install path is not ASCII; initdb uses a copy of share in ${shareCopy}\n`);
+      }
+      const r = await run(this.bin('initdb.exe'), args, { env: this.env, log: this.log, timeoutMs: 180000 });
       if (r.code !== 0) throw new Error(`initdb failed (code ${r.code}); see logs/postgres.log`);
     } finally {
       fs.rmSync(pwfile, { force: true });
+      if (shareCopy) fs.rmSync(shareCopy, { recursive: true, force: true });
     }
   }
 
@@ -345,4 +373,4 @@ class Supervisor extends EventEmitter {
   }
 }
 
-module.exports = { Supervisor, PostgresService, OllamaService, BackendService };
+module.exports = { Supervisor, PostgresService, OllamaService, BackendService, asciiScratchDir, isAscii };

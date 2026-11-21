@@ -56,6 +56,9 @@ PKOS has exactly two roles. There is no administrator role.
 - Embeddings: `sentence-transformers` with `BAAI/bge-small-en-v1.5` on CPU.
 - LLM: Ollama at `localhost:11434` (default model `llama3.2`); optional OpenAI / Anthropic.
 - Frontend: React 19 + Vite 8, served at `http://localhost:3000`; modern Chromium/Firefox/Safari desktop.
+- Desktop app (primary distribution): Windows 10/11 x64 installer bundling PostgreSQL 16 + pgvector 0.8.1,
+  Ollama, the backend and the embedding model; no admin rights, no other software needed. AI providers are chosen per
+  user in the app (local Ollama model or OpenAI/Anthropic API key).
 
 ### 2.3 Constraints
 - C1. Default configuration SHALL make no network calls to non-localhost hosts with user content.

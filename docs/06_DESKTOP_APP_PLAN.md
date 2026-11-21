@@ -185,6 +185,25 @@ nothing), restore of the pre-import backup (imported accounts gone again), diagn
 - D5-4 Log viewer / "Copy diagnostics" for bug reports (no API keys or document text in it).
 
 ### Phase 6: Verification and release
+
+**Status (2026-11-21): done except a real second PC and a signed release.** App icon (`packaging/make-icon.ps1`), version
+0.2.0. Findings and fixes:
+- **Unicode install path broke first start**: `initdb` embeds its share path in SQL in the ANSI codepage, so an install
+  under `C:\Users\Jürgen\...` failed with "invalid byte sequence for encoding UTF8". Now initdb gets an ASCII copy of
+  `share` (`-L`) when needed; the server itself runs fine from such paths. Verified: app in `D:\PKOS Test Ünï`, data in
+  `PKOS test ü dir`, user "Jürgen Ünïcode", file `gletscher ü.txt` indexed, backup written.
+- **Clean-PC dependencies** (Windows Home has no Sandbox): `packaging/audit-dlls.ps1` reads every bundled binary's import
+  and delay-import tables; it found the PL/Perl, PL/Python and PL/Tcl plugins needing Perl/Python/Tcl, now left out.
+  Result on 490 binaries: everything bundled or part of Windows (Vulkan from the GPU driver is optional).
+- `build.ps1 -Skip a,b` via `powershell -File` was ignored (one string); now split.
+Verified on this PC: backend killed mid graph job → supervisor restarted it on the same port, the job resumed at chunk
+1/10 and completed (26 concepts, 52 relationships); a second launch exits in 0.5 s without a second database;
+**upgrade 0.1.0 → 0.2.0** over an existing vault: one uninstall entry, still signed in, documents intact, automatic
+`before-update` backup taken before migrations, migration 0002 applied; silent uninstall keeps the data.
+`.github/workflows/release.yml` builds the installer on a clean `windows-2025` runner (official PostgreSQL 16.13
+binaries, Ollama 0.32.14, pgvector compiled, DLL audit) and uploads it as an artifact; **not run yet** (needs a push).
+Still open: a test on a second PC, the interactive "delete my data" prompt, code signing, PyMuPDF licensing.
+
 - D6-1 Clean-machine test in Windows Sandbox or a fresh VM: install, first run, register, both wizard paths, upload, query, graph, restart, uninstall.
 - D6-2 Edge cases: port already taken, existing Ollama on 11434, no internet during model download, disk full, app killed mid-indexing (worker resumes), PC sleep/resume.
 - D6-3 CI: GitHub Actions `windows-latest` job builds the installer as an artifact on tags.

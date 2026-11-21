@@ -298,7 +298,7 @@ cd ../frontend && npm install && npm run dev      # http://localhost:3000
 | Injection (SQL) | Parameterised except summarizer | All parameterised |
 | Prompt injection | `===` stripping, strict system prompt | + label untrusted context, eval tests |
 | Error leakage | `str(e)` in upload/graph 500s | Generic messages + server logs |
-| Cloud API keys | Browser localStorage → per-request header; not persisted server-side | Same; never log headers |
+| Cloud API keys | ~~Browser localStorage → per-request header~~ per-user `user_llm_settings`, Fernet-encrypted with a key derived from `PKOS_SECRET_KEY`; write-only API (masked hint) | Same; never log headers |
 | Dependency hygiene | Unpinned | Pinned + `pip-audit`/`npm audit` |
 
 ## 11. Deployment
@@ -314,6 +314,20 @@ Ollama runs on the host (GPU access); api reaches it via host.docker.internal:11
 ```
 
 Startup sequence: db healthy → api runs migrations/`configure_unified_schema` → api serves → web served. The embedding model (~130 MB) downloads on first use; cache it in a volume.
+
+### 11.1 Windows desktop app (primary target)
+A per-user NSIS installer (`packaging/build.ps1`, details in `docs/06_DESKTOP_APP_PLAN.md`):
+```
+PKOS.exe (Electron, desktop/)
+ ├─ postgres.exe  bundled PostgreSQL 16 + pgvector, 127.0.0.1:<free port>, data %LOCALAPPDATA%\PKOS\pgdata
+ ├─ ollama.exe    bundled Ollama (CPU, CUDA 13, Vulkan) or an Ollama already on 11434; models in ...\PKOS\ollama
+ └─ pkos-api.exe  PyInstaller build of backend/desktop_entry.py, ENV=desktop, bundled embedding model (offline)
+UI: frontend/dist served from app://pkos with a strict CSP; API address passed at runtime (window.pkos.apiBase)
+```
+The Electron supervisor starts the services in order, restarts crashed ones (3 per 10 min), backs up the vault before
+an update, and stops everything on quit; the backend exits on its own if Electron dies. Secrets (DB password,
+`PKOS_SECRET_KEY`) are generated on first run and sealed with DPAPI (`safeStorage`) in `config.json`. Backups,
+restore, import from an older PKOS and diagnostics are in Settings → This computer.
 
 ## 12. Monitoring & operations
 Proportionate to a local app — no external telemetry.

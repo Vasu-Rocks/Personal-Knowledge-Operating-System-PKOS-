@@ -32,6 +32,8 @@ param(
   [string]$HfCache = "$env:USERPROFILE\.cache\huggingface\hub"
 )
 $ErrorActionPreference = "Stop"
+# `powershell -File build.ps1 -Skip a,b` passes one string "a,b"; accept both forms.
+$Skip = @($Skip | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $Root = Split-Path -Parent $PSScriptRoot
 $Stage = Join-Path $Root "build\stage"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
@@ -112,9 +114,12 @@ Step "pgsql" {
     Build-Pgvector $work
   }
   New-Item -ItemType Directory -Force $out | Out-Null
-  # Debug symbols, import libraries and EDB's StackBuilder/pgAdmin helpers are not needed at runtime.
+  # Not needed at runtime: debug symbols, import libraries, EDB's StackBuilder/pgAdmin helpers, and the PL/Perl,
+  # PL/Python and PL/Tcl language plugins (they need Perl/Python/Tcl installed; PKOS never loads them).
+  $plugins = @("plperl.dll", "plpython3.dll", "pltcl.dll", "*_plperl.dll", "*_plpython3.dll",
+               "plperl*.control", "plperl*--*.sql", "plpython3u*", "pltcl*", "*_plperl*", "*_plpython3u*")
   foreach ($d in "bin", "lib", "share") {
-    Copy-Tree (Join-Path $work $d) (Join-Path $out $d) @("*.pdb", "*.lib", "stackbuilder.exe", "pgAdmin*")
+    Copy-Tree (Join-Path $work $d) (Join-Path $out $d) (@("*.pdb", "*.lib", "stackbuilder.exe", "pgAdmin*") + $plugins)
   }
   # The EDB binaries rely on a system-wide Visual C++ runtime; ship it next to them (app-local deployment).
   foreach ($dll in "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll") {
