@@ -1,0 +1,13 @@
+line-length = 140
+extend-exclude = ["../venv"]
+
+[lint]
+# E741: short comprehension names are fine here.
+ignore = ["E741"]
+
+[lint.per-file-ignores]
+# Entry points load .env or adjust sys.path before importing project modules, so imports are deliberately late.
+"main.py" = ["E402"]
+"clean_headers.py" = ["E402"]
+"eval_graph.py" = ["E402"]
+"graph_maintenance.py" = ["E402"]

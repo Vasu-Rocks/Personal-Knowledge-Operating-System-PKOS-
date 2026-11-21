@@ -1,6 +1,5 @@
 import uuid
 
-import pytest
 
 API = "/api/v1"
 

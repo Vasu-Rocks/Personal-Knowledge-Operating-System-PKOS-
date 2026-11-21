@@ -129,9 +129,7 @@ async def delete_document_async(pool: asyncpg.Pool, user_id: str, doc_id: str):
             "DELETE FROM documents WHERE user_id = $1 AND doc_id = $2",
             uuid.UUID(user_id), uuid.UUID(doc_id)
         )
-        # result looks like 'DELETE 1' or 'DELETE 0'
-        if result == 'DELETE 0':
-            raise Exception("Document not found or access denied.")
+        return result != 'DELETE 0'  # 'DELETE 1' on success
 
 async def retrieve_relevant_graph_async(pool: asyncpg.Pool, user_id: str, query_embedding: list, num_seeds: int = 2, max_edges: int = 20, max_distance: float = 0.35) -> dict:
     """

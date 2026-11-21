@@ -27,9 +27,8 @@ def test_control_characters_removed():
     assert "\x00" not in clean_text(f"{LONG}\x00\x07", ".txt")
 
 
-def test_urls_are_replaced_with_placeholder():
-    # Documents current behaviour (TD-15 / M2-11 plans to change this).
-    assert "[URL]" in clean_text(f"{LONG} see https://example.com/a/b?c=d now", ".txt")
+def test_urls_are_kept():
+    assert "https://example.com/a/b?c=d" in clean_text(f"{LONG} see https://example.com/a/b?c=d now", ".txt")
 
 
 def test_chunks_respect_size_limit():

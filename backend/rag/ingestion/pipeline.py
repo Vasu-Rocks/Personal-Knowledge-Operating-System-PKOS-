@@ -24,7 +24,8 @@ def process_file_stream(file_stream, filename: str, doc_id: str) -> list[dict]:
     for page_num, raw_content in page_generator:
         # Pass to 1.3
         cleaned = clean_text(raw_content, f".{extension}")
-        if not cleaned: continue
+        if not cleaned:
+            continue
             
         # Pass to 1.4
         chunks = split_text_into_chunks(cleaned)

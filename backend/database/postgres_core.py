@@ -3,6 +3,7 @@ import asyncpg
 from pgvector.asyncpg import register_vector
 import logging
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,6 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             CREATE TABLE IF NOT EXISTS chunk_entity_junction (
                 chunk_id INTEGER REFERENCES document_chunks(chunk_id) ON DELETE CASCADE,
                 entity_id UUID REFERENCES entities(entity_id) ON DELETE CASCADE,
-                mention_snippet TEXT,
                 PRIMARY KEY (chunk_id, entity_id)
             );
         """)
@@ -336,7 +336,34 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             EXECUTE FUNCTION delete_orphan_entities();
         """)
 
+        await apply_migrations(conn)
         logger.info("Successfully stamped Phase 1 Graph RAG Schema (Nodes, Edges, Communities, Junctions).")
+
+
+MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+
+async def apply_migrations(conn: asyncpg.Connection):
+    """
+    Applies numbered SQL files (NNNN_name.sql) from database/migrations in order, once each, recording them in
+    schema_version. The baseline above stays idempotent; new schema changes go in a migration, never in a drop.
+    """
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    """)
+    applied = {r["version"] for r in await conn.fetch("SELECT version FROM schema_version")}
+    for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")):
+        version = int(path.name[:4])
+        if version in applied:
+            continue
+        async with conn.transaction():
+            await conn.execute(path.read_text(encoding="utf-8"))
+            await conn.execute("INSERT INTO schema_version (version, name) VALUES ($1, $2)", version, path.stem)
+        logger.info("Applied migration %s", path.name)
 
 async def verify_infrastructure():
     """Standalone script: creates the schema when run directly. Useful for debugging."""

@@ -1,6 +1,5 @@
 import uuid
 import logging
-import asyncio
 from fastapi import APIRouter, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends
 import asyncpg
 
@@ -142,12 +141,10 @@ async def delete_document(
 ):
     active_user_id = current_user["user_id"]
     try:
-        await delete_document_async(pool, active_user_id, str(doc_id))
-        return {"message": "Document and all associated data deleted successfully."}
-    except Exception as e:
-        # Only specific "not found" errors become 404; everything else is 400
-        msg = str(e).lower()
-        if "not found" in msg or "access denied" in msg:
-            raise HTTPException(status_code=404, detail="Document not found or access denied.")
+        deleted = await delete_document_async(pool, active_user_id, str(doc_id))
+    except Exception:
         logger.exception("Delete failed for doc %s user %s", doc_id, active_user_id)
         raise HTTPException(status_code=500, detail="Failed to delete document.")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found or access denied.")
+    return {"message": "Document and all associated data deleted successfully."}

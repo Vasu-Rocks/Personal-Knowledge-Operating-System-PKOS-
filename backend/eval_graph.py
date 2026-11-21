@@ -105,7 +105,8 @@ async def main():
             sel = [r for r in rows if t == "all" or r["type"] == t]
             if not sel:
                 continue
-            mean = lambda mode, key: sum(r[mode][key] for r in sel) / len(sel)
+            def mean(mode, key):
+                return sum(r[mode][key] for r in sel) / len(sel)
             line = f"{t:6} n={len(sel):2} chunk coverage " + " ".join(f"{m}={mean(m, 'chunk_coverage'):.2f}" for m in MODES)
             line += " | book coverage " + " ".join(f"{m}={mean(m, 'book_coverage'):.2f}" for m in MODES)
             if not args.no_answers:

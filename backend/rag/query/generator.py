@@ -60,7 +60,7 @@ def generate_rag_response(messages: list[dict[str, str]], model_name: str = None
         return "System Error: Local AI returned invalid parsing data natively."
     except Exception as e:
         logger.error(f"[ERROR] Unexpected Execution Crash: {str(e)}")
-        return f"System Error: Unexpected failure: {str(e)}"
+        return "System Error: Unexpected failure. See the server log for details."
 
 async def generate_rag_response_stream(messages: list[dict[str, str]], model_name: str = None, settings: dict = None):
     """
@@ -120,7 +120,7 @@ async def generate_rag_response_stream(messages: list[dict[str, str]], model_nam
                             logger.error(f"[ERROR] OpenAI Stream parse error: {parse_err}")
         except Exception as e:
             logger.error(f"[ERROR] OpenAI Execution Crash: {str(e)}")
-            yield json.dumps({"type": "token", "content": f"System Error: Unexpected failure: {str(e)}"})
+            yield json.dumps({"type": "token", "content": "System Error: Unexpected failure. See the server log for details."})
             
     elif provider == "anthropic":
         api_key = settings.get("anthropic_key")
@@ -181,7 +181,7 @@ async def generate_rag_response_stream(messages: list[dict[str, str]], model_nam
                             logger.error(f"[ERROR] Anthropic Stream parse error: {parse_err}")
         except Exception as e:
             logger.error(f"[ERROR] Anthropic Execution Crash: {str(e)}")
-            yield json.dumps({"type": "token", "content": f"System Error: Unexpected failure: {str(e)}"})
+            yield json.dumps({"type": "token", "content": "System Error: Unexpected failure. See the server log for details."})
 
     else:
         # Default Ollama behavior
@@ -224,5 +224,5 @@ async def generate_rag_response_stream(messages: list[dict[str, str]], model_nam
             yield json.dumps({"type": "token", "content": "System Error: Inference timeout. Model took too long to load into RAM."})
         except Exception as e:
             logger.error(f"[ERROR] Unexpected Execution Crash: {str(e)}")
-            yield json.dumps({"type": "token", "content": f"System Error: Unexpected failure: {str(e)}"})
+            yield json.dumps({"type": "token", "content": "System Error: Unexpected failure. See the server log for details."})
 

@@ -69,8 +69,6 @@ async def graph_stats(pool, user_id):
             f"SELECT COUNT(*) FROM relationships WHERE weight <= 1 {'AND user_id = $1' if user_id else ''}", *args))
         print("distinct predicates:", await conn.fetchval(
             f"SELECT COUNT(DISTINCT predicate) FROM relationships {clause}", *args))
-        print("junction rows with mention_snippet:", await conn.fetchval(
-            "SELECT COUNT(*) FROM chunk_entity_junction WHERE mention_snippet IS NOT NULL"))
 
         print("\n== Entity categories ==")
         for r in await conn.fetch(

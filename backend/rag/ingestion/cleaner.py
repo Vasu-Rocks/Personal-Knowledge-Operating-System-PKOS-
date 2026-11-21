@@ -9,10 +9,6 @@ def clean_text(text: str, file_extension: str) -> str:
     text = unicodedata.normalize('NFKD', text)
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text) # Remove control chars
     
-    # 2. Token-Wasting Artifact Removal (Applies to everything)
-    # Replaces long URLs with a token-friendly placeholder
-    text = re.sub(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s]*', '[URL]', text)
-    
     # --- BRANCH LOGIC based on File Type ---
     
     if file_extension in ['.py', '.js']:

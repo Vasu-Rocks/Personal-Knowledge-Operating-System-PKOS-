@@ -16,7 +16,6 @@ import io
 import os
 import sys
 import time
-import uuid
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -120,8 +119,8 @@ async def merge_group(conn, key, members, stats):
     """, loser_ids, sid)
     await conn.execute("DELETE FROM community_members WHERE entity_id = ANY($1)", loser_ids)
     await conn.execute("""
-        INSERT INTO chunk_entity_junction (chunk_id, entity_id, mention_snippet)
-        SELECT chunk_id, $2, mention_snippet FROM chunk_entity_junction WHERE entity_id = ANY($1) ON CONFLICT DO NOTHING
+        INSERT INTO chunk_entity_junction (chunk_id, entity_id)
+        SELECT chunk_id, $2 FROM chunk_entity_junction WHERE entity_id = ANY($1) ON CONFLICT DO NOTHING
     """, loser_ids, sid)
     await conn.execute("DELETE FROM chunk_entity_junction WHERE entity_id = ANY($1)", loser_ids)  # orphan trigger may drop losers
     await conn.execute("DELETE FROM entities WHERE entity_id = ANY($1)", loser_ids)

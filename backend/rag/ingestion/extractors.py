@@ -1,5 +1,4 @@
 import fitz  # PyMuPDF
-import io
 
 from .headers import detect_repeating_edges, strip_edges
 

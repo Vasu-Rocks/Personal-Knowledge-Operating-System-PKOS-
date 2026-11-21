@@ -50,7 +50,6 @@ async def plan(conn):
         if not headers:
             continue
 
-        prev_text = {}
         for page in pages.values():
             for idx, r in enumerate(page):
                 text, removed = r["text_content"], []

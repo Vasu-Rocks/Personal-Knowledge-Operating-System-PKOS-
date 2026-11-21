@@ -1,7 +1,4 @@
-import sys
-import os
 import asyncio
-import uuid
 from database.postgres_core import init_db_pool
 from rag.vector.embedder import embed_query
 
