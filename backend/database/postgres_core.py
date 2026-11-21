@@ -24,6 +24,12 @@ async def init_db_pool() -> asyncpg.Pool:
         await register_vector(conn)
 
     try:
+        # register_vector needs the extension to exist, so on a fresh database create it before the pool opens.
+        bootstrap = await asyncpg.connect(dsn=DSN)
+        try:
+            await bootstrap.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        finally:
+            await bootstrap.close()
         pool = await asyncpg.create_pool(
             dsn=DSN,
             min_size=1,

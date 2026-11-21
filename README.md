@@ -37,7 +37,11 @@ pg_dump -h localhost -p 5433 -U postgres pkos_v2 > pkos_backup.sql
 ```
 
 ## Troubleshooting
-- **Tests**: `pip install -r requirements-dev.txt && pytest` from `backend/` (no DB or Ollama needed).
+- **Tests**: from `backend/` run `pip install -r requirements-dev.txt && pytest`. Unit tests need nothing else. The API tests
+  (auth, upload/delete, query, user isolation) need a throwaway pgvector database and are skipped if it is unreachable:
+  `docker run -d --name pkos-test-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=pkos_test -p 127.0.0.1:5434:5432 pgvector/pgvector:pg16`
+  (override with `TEST_POSTGRES_HOST/PORT/DB/USER/PASSWORD`). The test schema is dropped and recreated each run, so never point it at real data.
+  Embeddings and the LLM are faked; Ollama is not needed.
 - **Health shows `ollama: false`**: start Ollama and check `OLLAMA_BASE_URL`.
 - **Cannot connect to the database**: verify port 5433 and the `POSTGRES_*` variables.
 - **Logged out after every restart**: `PKOS_SECRET_KEY` is not set.
