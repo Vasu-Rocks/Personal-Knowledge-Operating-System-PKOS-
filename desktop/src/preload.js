@@ -21,4 +21,11 @@ contextBridge.exposeInMainWorld('pkos', {
   retry: () => ipcRenderer.invoke('pkos:retry'),
   restartServices: () => ipcRenderer.invoke('pkos:restart-services'),
   quit: () => ipcRenderer.invoke('pkos:quit'),
+  backups: {
+    list: () => ipcRenderer.invoke('pkos:backup-list'),
+    create: (kind) => ipcRenderer.invoke('pkos:backup-create', kind),
+    restore: (name) => ipcRenderer.invoke('pkos:backup-restore', name),
+    openFolder: () => ipcRenderer.invoke('pkos:backup-open-folder'),
+  },
+  copyDiagnostics: () => ipcRenderer.invoke('pkos:copy-diagnostics'),
 });

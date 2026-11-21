@@ -163,6 +163,22 @@ the interactive "delete my data" uninstall prompt, a clean-machine test (D6-1), 
 AGPL-3.0, which matters before the installer is given to anyone else.
 
 ### Phase 5: Data safety and maintenance
+
+**Status (2026-11-21): done.** Backups run in the Electron main process with the bundled `pg_dump`/`pg_restore`
+(`desktop/src/backup.js`): custom-format dumps of the whole vault in `<data>\backups`, written to a `.partial` file and
+renamed; automatic kinds (`before-update`, `before-restore`, `before-import`) keep the last 5 each, manual backups are
+never pruned. Restore: verify the file with `pg_restore --list`, back up the current data, restore into a temporary
+database, stop the engine, swap the databases by renaming, start the engine; if the engine fails on the restored data
+the previous database is renamed back. Before-update backups run after Postgres starts and before the engine (and its
+migrations) when `config.json`'s `lastVersion` differs from the app version. Import (`backend/database/import_pkos.py`,
+`POST /import/pkos`, desktop only, localhost only): read-only repeatable-read snapshot of the source, one transaction
+on the target, users skipped when their ID, email or username exists, fresh `chunk_id`s with every reference rewritten,
+only common columns, AI settings not copied; a dry run reports what would happen. "Copy diagnostics" masks API keys,
+tokens, passwords and email addresses. Tests: 7 import (pytest), 10 backup/diagnostics/config (node:test), 6 UI
+(Vitest). Real run on this PC (dev vault): automatic pre-update backup, manual backup, import of the old Docker
+database (7 accounts, 7 documents, 4,792 passages, 3,522 concepts, 7,418 relationships in 5.6 s; a second run imported
+nothing), restore of the pre-import backup (imported accounts gone again), diagnostics free of emails/keys/tokens.
+
 - D5-1 Backup/export: bundled `pg_dump`; "Export vault" in Settings writes to `backups\`; "Restore" with confirmation.
 - D5-2 Automatic backup before every app update that includes migrations.
 - D5-3 Import tool: Settings → "Import from existing PKOS" asks for host/port/user/password/database (default `localhost:5433`, `pkos_v2`), checks the schema version, then copies users, documents, chunks with their vectors, entities, relations, junctions, communities and graph jobs in one transaction. Vectors are copied as-is (same embedding model, no re-embedding). Rows keep their IDs; a user whose username or email already exists is skipped and reported. The source database is only read, never changed. A backup of the app database is taken first. Tests: import a seeded source DB, re-run (no duplicates), clash handling.

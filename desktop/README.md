@@ -28,7 +28,12 @@ Useful environment variables:
   the app dies). Crashed services restart up to 3 times in 10 minutes.
 - `src/config.js`: first-run secrets (database password, `PKOS_SECRET_KEY`) in `config.json`, encrypted with
   Windows DPAPI via Electron `safeStorage`.
-- `src/preload.js`: the only bridge to the UI, `window.pkos` (`apiBase`, status, open logs, restart services).
+- `src/preload.js`: the only bridge to the UI, `window.pkos` (`apiBase`, status, open logs, restart services,
+  `backups.*`, `copyDiagnostics`).
+- `src/backup.js`: vault backups and restore with `pg_dump`/`pg_restore` (safety backup, temp database, swap, roll
+  back if the engine fails); a backup runs automatically before an update.
+- `src/diagnostics.js`: "Copy diagnostics" text with secrets and emails masked.
+- `PKOS_TEST_AUTOCONFIRM=1` (dev runs only) answers the restore confirmation dialog, for automated UI tests.
 
 Data folder layout: `pgdata/`, `ollama/` (models), `logs/` (`desktop.log`, `postgres.log`, `ollama.log`,
 `backend.log`, backend `api.log`), `config.json`, `electron/` (Chromium profile).

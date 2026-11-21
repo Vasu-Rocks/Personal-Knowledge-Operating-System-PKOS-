@@ -2,12 +2,14 @@
 // PKOS desktop: Electron main process. Starts the local services, then shows the React UI from the app:// protocol.
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, dialog, ipcMain, net, protocol, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, safeStorage, shell } = require('electron');
 const { pathToFileURL } = require('url');
 const { resolvePaths } = require('./paths');
-const { loadOrCreateConfig } = require('./config');
+const { isUpgrade, loadOrCreateConfig, updateConfig } = require('./config');
 const { Supervisor } = require('./services');
 const { openLog } = require('./process');
+const { BackupManager } = require('./backup');
+const { collectDiagnostics } = require('./diagnostics');
 
 const isDev = !app.isPackaged || process.argv.includes('--dev');
 const paths = resolvePaths({ packaged: app.isPackaged && !process.argv.includes('--dev'), resourcesPath: process.resourcesPath });
@@ -23,6 +25,7 @@ let desktopLog = { write: () => {} };
 let splash = null;
 let mainWindow = null;
 let supervisor = null;
+let backups = null;
 let quitting = false;
 
 if (!app.requestSingleInstanceLock()) {
@@ -176,6 +179,60 @@ function registerIpc() {
     return supervisor.snapshot();
   });
   handle('pkos:quit', () => app.quit());
+
+  // ---- backups (whole vault: every PKOS user on this computer)
+  handle('pkos:backup-list', () => backups.list().map(({ path: _p, ...b }) => b));
+  handle('pkos:backup-open-folder', () => {
+    fs.mkdirSync(paths.backups, { recursive: true });
+    return shell.openPath(paths.backups);
+  });
+  handle('pkos:backup-create', async (kind) => {
+    const b = await backups.create(kind === 'before-import' ? 'before-import' : 'manual');
+    desktopLog.write(`[pkos] backup created: ${b.name} (${b.size} bytes)\n`);
+    const { path: _p, ...pub } = b;
+    return pub;
+  });
+  handle('pkos:backup-restore', async (name) => {
+    const win = BrowserWindow.getFocusedWindow() || mainWindow;
+    let file = name ? path.join(paths.backups, path.basename(name)) : null;
+    if (!file) {
+      const pick = await dialog.showOpenDialog(win, {
+        title: 'Restore PKOS backup', defaultPath: paths.backups, properties: ['openFile'],
+        filters: [{ name: 'PKOS backup', extensions: ['dump'] }],
+      });
+      if (pick.canceled || !pick.filePaths[0]) return { canceled: true };
+      file = pick.filePaths[0];
+    }
+    // Dev-only test hook: automated UI tests cannot click a native dialog. Ignored in the packaged app.
+    const autoConfirm = isDev && !app.isPackaged && process.env.PKOS_TEST_AUTOCONFIRM === '1';
+    const answer = autoConfirm ? { response: 0 } : await dialog.showMessageBox(win, {
+      type: 'warning', buttons: ['Restore', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true,
+      title: 'Restore backup',
+      message: `Replace all PKOS data with ${path.basename(file)}?`,
+      detail: 'Every account, document and knowledge map on this computer is replaced by the backup. '
+        + 'A backup of the current data is made first, so this can be undone.',
+    });
+    if (answer.response !== 0) return { canceled: true };
+    desktopLog.write(`[pkos] restoring ${path.basename(file)}\n`);
+    const result = await backups.restore(file, {
+      stopBackend: () => supervisor.stopBackend(),
+      startBackend: () => supervisor.startBackend(),
+    });
+    desktopLog.write(`[pkos] restore finished: ${JSON.stringify(result)}\n`);
+    // Reload so the UI starts from the restored data (the login may no longer exist).
+    setTimeout(() => { if (mainWindow) mainWindow.webContents.reload(); }, 300);
+    return result;
+  });
+
+  // ---- diagnostics
+  handle('pkos:copy-diagnostics', () => {
+    const text = collectDiagnostics({
+      appVersion: app.getVersion(), electronVersion: process.versions.electron, paths,
+      snapshot: supervisor ? supervisor.snapshot() : null,
+    });
+    clipboard.writeText(text);
+    return { copied: true, characters: text.length };
+  });
 }
 
 // ------------------------------------------------------------------------------------------- lifecycle
@@ -183,6 +240,11 @@ function registerIpc() {
 async function startServices() {
   try {
     await supervisor.startAll();
+    try {
+      updateConfig(paths.configFile, { lastVersion: app.getVersion() });
+    } catch (e) {
+      desktopLog.write(`[pkos] could not record the app version: ${e.message}\n`);
+    }
     if (!mainWindow) createMainWindow();
   } catch (e) {
     supervisor.fatal = e.message;
@@ -209,7 +271,26 @@ async function boot() {
 
   const origins = [APP_ORIGIN];
   if (paths.devUrl) origins.push(new URL(paths.devUrl).origin);
-  supervisor = new Supervisor({ paths, cfg, origins });
+  const version = app.getVersion();
+  let upgradeBackupPending = isUpgrade(cfg, version);
+  supervisor = new Supervisor({
+    paths, cfg, origins,
+    // An update may bring migrations: back up the vault after the database is up and before the engine starts.
+    beforeStart: async (name) => {
+      if (name !== 'backend' || !upgradeBackupPending) return;
+      upgradeBackupPending = false;
+      try {
+        const b = await backups.create('before-update');
+        desktopLog.write(`[pkos] backup before update ${cfg.lastVersion || '(unknown)'} -> ${version}: ${b.name}\n`);
+      } catch (e) {
+        desktopLog.write(`[pkos] WARNING: backup before update failed: ${e.message}\n`);
+      }
+    },
+  });
+  backups = new BackupManager({
+    pgBin: paths.pgBin, backupsDir: paths.backups, log: desktopLog,
+    getConn: () => ({ port: supervisor.postgres.port, user: cfg.dbUser, password: cfg.dbPassword, db: cfg.dbName }),
+  });
   supervisor.on('status', (s) => {
     broadcast('pkos:status', s);
     const line = Object.entries(s.services).map(([k, v]) => `${k}=${v.status}${v.detail ? ` (${v.detail})` : ''}`).join(' ');

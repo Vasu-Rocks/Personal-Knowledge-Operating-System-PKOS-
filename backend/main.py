@@ -30,6 +30,7 @@ from api import routes_auth
 from api import routes_graph
 from api import routes_settings
 from api import routes_llm
+from api import routes_import
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,6 +87,7 @@ app.include_router(routes_graph.router, prefix="/api/v1", tags=["Graph"])
 # Desktop app: per-user AI provider settings, model management, system status
 app.include_router(routes_settings.router, prefix="/api/v1", tags=["Settings"])
 app.include_router(routes_llm.router, prefix="/api/v1", tags=["AI"])
+app.include_router(routes_import.router, prefix="/api/v1", tags=["Import"])
 
 
 

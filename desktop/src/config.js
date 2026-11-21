@@ -65,4 +65,20 @@ function loadOrCreateConfig(configFile, safeStorage) {
   return { ...plain, firstRun: true };
 }
 
-module.exports = { loadOrCreateConfig, randomSecret, seal, unseal };
+/** Merges non-secret fields (e.g. lastVersion) into config.json, keeping the sealed secrets as they are. */
+function updateConfig(configFile, patch) {
+  for (const field of SECRET_FIELDS) if (field in patch) throw new Error(`updateConfig cannot change ${field}`);
+  const raw = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+  const next = { ...raw, ...patch };
+  const tmp = `${configFile}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tmp, configFile);
+  return next;
+}
+
+/** True when this start is an upgrade over an existing vault, so a backup should run before migrations. */
+function isUpgrade(cfg, appVersion) {
+  return !cfg.firstRun && cfg.lastVersion !== appVersion;
+}
+
+module.exports = { loadOrCreateConfig, updateConfig, isUpgrade, randomSecret, seal, unseal };

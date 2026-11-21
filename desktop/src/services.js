@@ -235,9 +235,10 @@ class BackendService {
  * (up to 3 times in 10 minutes) and stops everything in reverse order.
  */
 class Supervisor extends EventEmitter {
-  constructor({ paths, cfg, origins }) {
+  constructor({ paths, cfg, origins, beforeStart = async () => {} }) {
     super();
     this.paths = paths;
+    this.beforeStart = beforeStart; // async (serviceName) => {}, e.g. a backup before the backend runs migrations
     this.postgres = new PostgresService({ paths, cfg });
     this.ollama = new OllamaService({ paths, cfg });
     this.backend = new BackendService({
@@ -289,6 +290,7 @@ class Supervisor extends EventEmitter {
     this.fatal = null;
     for (const svc of this.services) {
       if (this.quitting) return;
+      if (!(svc.proc && svc.proc.running)) await this.beforeStart(svc.name);
       await this.startService(svc);
     }
   }
@@ -310,6 +312,17 @@ class Supervisor extends EventEmitter {
       this.fatal = `${svc.label} could not be restarted: ${e.message}`;
       this.emit('status', this.snapshot());
     }
+  }
+
+  /** Stop/start just the backend (used by restore, which swaps the database underneath it). */
+  async stopBackend() {
+    await this.backend.stop(); // an expected exit, so it is not treated as a crash
+    this.set('backend', 'stopped');
+  }
+
+  async startBackend() {
+    this.crashes.backend = [];
+    await this.startService(this.backend);
   }
 
   async restartAll() {

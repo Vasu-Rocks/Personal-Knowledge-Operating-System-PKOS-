@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Server, Cloud, Save, CheckCircle2, Network, RefreshCw, Sparkles, FolderOpen, FileText, AlertTriangle } from 'lucide-react';
+import { X, Server, Cloud, Save, CheckCircle2, Network, RefreshCw, Sparkles, AlertTriangle } from 'lucide-react';
+import DesktopDataSection from './ai/DesktopDataSection';
 import { useAuth } from '../context/useAuth';
 import { API } from '../api';
 import { deleteOllamaModel, getLlmSettings, getOllamaModels, saveLlmSettings, settingsBody } from '../lib/llmApi';
@@ -223,16 +224,7 @@ export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
           </section>
 
           {/* Desktop app */}
-          {desktop && desktop.isDesktop && (
-            <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div className="ai-section-title"><FolderOpen size={14} /> This computer</div>
-              <p className="ai-muted">Your vault is stored in {desktop.dataDir}. PKOS {desktop.version}.</p>
-              <div className="ai-row">
-                <button type="button" className="ai-btn" onClick={() => desktop.openDataFolder()}><FolderOpen size={14} /> Open data folder</button>
-                <button type="button" className="ai-btn" onClick={() => desktop.openLogs()}><FileText size={14} /> Open logs</button>
-              </div>
-            </section>
-          )}
+          {desktop && desktop.isDesktop && desktop.backups && <DesktopDataSection desktop={desktop} />}
         </div>
 
         <div className="ai-card-footer">
