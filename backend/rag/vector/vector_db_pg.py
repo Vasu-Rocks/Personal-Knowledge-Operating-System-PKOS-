@@ -91,6 +91,7 @@ async def get_user_documents_async(pool: asyncpg.Pool, user_id: str) -> list[dic
         rows = await conn.fetch(
             """
             SELECT d.doc_id, d.filename, d.created_at,
+                   d.index_status, d.index_error, d.chunk_count,
                    j.status AS graph_status, j.processed_chunks, j.total_chunks, j.error
             FROM documents d
             LEFT JOIN graph_jobs j ON j.doc_id = d.doc_id
@@ -104,6 +105,9 @@ async def get_user_documents_async(pool: asyncpg.Pool, user_id: str) -> list[dic
                 "doc_id": str(row["doc_id"]),
                 "filename": row["filename"],
                 "timestamp": str(row["created_at"]),
+                "index_status": row["index_status"] or "READY",
+                "index_error": row["index_error"],
+                "chunk_count": row["chunk_count"],
                 "graph_status": row["graph_status"],
                 "graph_processed": row["processed_chunks"],
                 "graph_total": row["total_chunks"],

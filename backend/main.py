@@ -1,7 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import os
 from contextlib import asynccontextmanager
+
+# Load .env FIRST — before any module that reads os.getenv() at import time (e.g. security.py)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Reads backend/.env if it exists; silently skips if not found
+except ImportError:
+    pass  # python-dotenv not installed; rely on shell environment variables
+
 from database.postgres_core import init_db_pool
 from rag.graph.worker import GraphWorker
 
@@ -22,6 +31,10 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing unified PostgreSQL connection pool...")
     pool = await init_db_pool()
     app.state.pool = pool
+    # Auto-create schema (idempotent - safe to run every startup)
+    from database.postgres_core import configure_unified_schema
+    await configure_unified_schema(pool)
+    logger.info("Database schema verified.")
     # Single background worker for graph extraction; resumes jobs interrupted by a restart.
     app.state.graph_worker = GraphWorker(pool)
     await app.state.graph_worker.start()

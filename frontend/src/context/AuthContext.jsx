@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { API } from '../api';
 
 const AuthContext = createContext();
 
@@ -11,7 +12,7 @@ export const AuthProvider = ({ children }) => {
 
   const fetchCurrentUser = async (currentToken) => {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/me', {
+      const res = await fetch(`${API}/me`, {
         headers: {
           Authorization: `Bearer ${currentToken}`
         }
@@ -45,7 +46,7 @@ export const AuthProvider = ({ children }) => {
     formData.append('username', usernameOrEmail);
     formData.append('password', password);
 
-    const response = await fetch('http://localhost:8000/api/v1/login', {
+    const response = await fetch(`${API}/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -63,7 +64,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (email, username, name, password) => {
-    const response = await fetch('http://localhost:8000/api/v1/register', {
+    const response = await fetch(`${API}/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -43,8 +43,8 @@ async def register(user_data: SetupRequest, pool: asyncpg.Pool = Depends(get_db)
         
     try:
         hashed_password = get_password_hash(user_data.password)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Password is too long (max 71 characters).")
         
     try:
         user_id = await create_user_async(

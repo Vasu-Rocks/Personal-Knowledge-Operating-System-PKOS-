@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Server, Cloud, Lock, Save, CheckCircle2, Network, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API } from '../api';
 
 export default function SettingsView({ onClose }) {
   const [provider, setProvider] = useState('ollama');

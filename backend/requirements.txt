@@ -2,9 +2,9 @@ fastapi
 uvicorn[standard]
 pydantic
 python-multipart
+python-dotenv
 requests
 numpy
-faiss-cpu
 sentence-transformers
 langchain-text-splitters
 PyMuPDF

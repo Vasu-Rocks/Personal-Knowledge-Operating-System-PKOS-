@@ -37,34 +37,13 @@ async def init_db_pool() -> asyncpg.Pool:
 
 async def configure_unified_schema(pool: asyncpg.Pool):
     """
-    Mathematically locks the Relational Database schema into memory,
-    destroying the Split Brain architecture.
+    Creates or migrates the PKOS schema idempotently.
+    Safe to call on every startup — uses CREATE TABLE IF NOT EXISTS and
+    ALTER TABLE ... ADD COLUMN IF NOT EXISTS throughout. Never drops data.
     """
     async with pool.acquire() as conn:
         # 1. Enforce pgvector Native Extension
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        
-        # Pre-Flight Column Presence Check (Handles legacy DB automatic restructuring safely)
-        table_exists = await conn.fetchval("""
-            SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_name = 'users'
-            );
-        """)
-        
-        if table_exists:
-            column_count = await conn.fetchval("""
-                SELECT COUNT(*) 
-                FROM information_schema.columns 
-                WHERE table_schema = 'public' AND table_name = 'users' 
-                  AND column_name IN ('email', 'username', 'name');
-            """)
-            if column_count < 3:
-                logger.info("Legacy DB schema detected (missing email, username, or name columns). Dropping tables to rebuild with full identity mapping...")
-                await conn.execute("DROP TABLE IF EXISTS document_chunks CASCADE;")
-                await conn.execute("DROP TABLE IF EXISTS documents CASCADE;")
-                await conn.execute("DROP TABLE IF EXISTS users CASCADE;")
 
         # 2. Auth Layer
         await conn.execute("""
@@ -88,6 +67,11 @@ async def configure_unified_schema(pool: asyncpg.Pool):
             );
         """)
         
+        # Indexing status columns (added in background-upload migration)
+        await conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS index_status VARCHAR(50) DEFAULT 'READY';")
+        await conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS index_error TEXT;")
+        await conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS chunk_count INTEGER;")
+
         # 4. Mathematical Vector Domain
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS document_chunks (
@@ -349,20 +333,23 @@ async def configure_unified_schema(pool: asyncpg.Pool):
         logger.info("Successfully stamped Phase 1 Graph RAG Schema (Nodes, Edges, Communities, Junctions).")
 
 async def verify_infrastructure():
-    print("Initiating Database Build Script (Phase 5 Stage 1)...")
+    """Standalone script: creates the schema when run directly. Useful for debugging."""
+    print("PKOS — running schema setup...")
     try:
-        # Pre-flight: Establish raw connection to create extension BEFORE the pool attempts to register it
-        conn = await asyncpg.connect(DSN)
-        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        await conn.close()
-        
         pool = await init_db_pool()
         await configure_unified_schema(pool)
         await pool.close()
-        print("Build Complete. Please verify '\\d document_chunks' in the psql terminal.")
+        print("Schema setup complete.")
     except Exception as e:
-        print(f"Build Failed: Ensure PostgreSQL is running on {POSTGRES_HOST}:{POSTGRES_PORT} with pgvector installed.")
-        print(f"Error Details: {e}")
+        print(f"Failed: {e}")
+        print(f"Make sure PostgreSQL is running on {POSTGRES_HOST}:{POSTGRES_PORT} with pgvector installed.")
+        raise
 
 if __name__ == "__main__":
+    # Load .env when running as a standalone script
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     asyncio.run(verify_infrastructure())

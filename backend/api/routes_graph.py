@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 import asyncpg
 import uuid
+import logging
 from typing import Literal
 from pydantic import BaseModel
 from api.dependencies import get_current_user, get_db
@@ -10,6 +11,7 @@ from rag.graph.connections import entity_detail, find_connection, get_evidence, 
 from rag.graph.map import MAX_NODES, DEFAULT_LIMIT, build_map
 from rag.graph.summarizer import run_community_summarizer
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/graph/jobs/{doc_id}/start")
@@ -63,8 +65,9 @@ async def trigger_graph_clustering(
         active_user_id = current_user["user_id"]
         result = await run_louvain_clustering(pool, active_user_id)
         return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Graph operation failed")
+        raise HTTPException(status_code=500, detail="Graph operation failed. Check server logs.")
 
 @router.post("/graph/summarize")
 async def trigger_graph_summarization(
@@ -80,8 +83,9 @@ async def trigger_graph_summarization(
         # We start it in the background so the endpoint returns immediately
         background_tasks.add_task(run_community_summarizer, pool=pool, user_id=current_user["user_id"])
         return {"message": "Community summarization worker started in the background."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Graph operation failed")
+        raise HTTPException(status_code=500, detail="Graph operation failed. Check server logs.")
 
 
 @router.post("/graph/rebuild")

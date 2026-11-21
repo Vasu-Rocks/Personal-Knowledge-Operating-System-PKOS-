@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { API } from '../api';
 import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2, Settings, Play, Pause, AlertTriangle, Clock, Network, Map as MapIcon } from 'lucide-react';
 import SettingsView from './SettingsView';
 import ConnectionsView from './ConnectionsView';
@@ -14,11 +15,12 @@ export default function VaultView({ width = 250 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
 
   const fetchDocuments = async () => {
     try {
-      const res = await authFetch('http://localhost:8000/api/v1/documents');
+      const res = await authFetch(`${API}/documents`);
       if (res.ok) {
         const data = await res.json();
         setDocuments(data.documents || []);
@@ -33,7 +35,9 @@ export default function VaultView({ width = 250 }) {
   }, []);
 
   // Poll while any graph job is queued or running so progress stays live.
-  const hasActiveJob = documents.some(d => d.graph_status === 'PENDING' || d.graph_status === 'PROCESSING');
+  const hasActiveJob = documents.some(d =>
+    d.graph_status === 'PENDING' || d.graph_status === 'PROCESSING' || d.index_status === 'INDEXING'
+  );
   useEffect(() => {
     if (!hasActiveJob) return;
     const timer = setInterval(fetchDocuments, 4000);
@@ -43,7 +47,7 @@ export default function VaultView({ width = 250 }) {
   const handleJobAction = async (docId, action, e) => {
     e.stopPropagation();
     try {
-      await authFetch(`http://localhost:8000/api/v1/graph/jobs/${docId}/${action}`, { method: 'POST' });
+      await authFetch(`${API}/graph/jobs/${docId}/${action}`, { method: 'POST' });
     } catch (err) {
       console.error(`Graph job ${action} failed`, err);
     }
@@ -86,20 +90,32 @@ export default function VaultView({ width = 250 }) {
 
   const handleFileUpload = async (file) => {
     if (!file) return;
+    // Client-side pre-validation
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['pdf','txt','md','py','js'].includes(ext)) {
+      setUploadError(`Unsupported file type ".${ext}". Allowed: PDF, TXT, MD, PY, JS`);
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError('File is too large. Maximum size is 50 MB.');
+      return;
+    }
+    setUploadError('');
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", file);
-
     try {
-      const res = await authFetch('http://localhost:8000/api/v1/upload', {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await authFetch(`${API}/upload`, { method: 'POST', body: formData });
       if (res.ok) {
-        await fetchDocuments(); // Refresh automatically
+        setUploadError('');
+        await fetchDocuments();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setUploadError(data.detail || 'Upload failed. Please try again.');
       }
     } catch (err) {
       console.error("Upload failed", err);
+      setUploadError('Network error. Is the server running?');
     } finally {
       setIsUploading(false);
     }
@@ -113,7 +129,7 @@ export default function VaultView({ width = 250 }) {
     
     try {
       // 2. Cascade delete on the backend
-      const res = await authFetch(`http://localhost:8000/api/v1/documents/${docId}`, {
+      const res = await authFetch(`${API}/documents/${docId}`, {
         method: 'DELETE'
       });
       if (!res.ok) {
@@ -185,6 +201,11 @@ export default function VaultView({ width = 250 }) {
             {isUploading ? 'Hashing Vectors...' : 'Drop PDF here or click to browse'}
           </span>
         </div>
+        {uploadError && (
+          <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>⚠</span> {uploadError}
+          </div>
+        )}
       </div>
 
       {/* Roster */}
@@ -211,9 +232,14 @@ export default function VaultView({ width = 250 }) {
                   <span style={{ fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {doc.filename}
                   </span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    <CheckCircle2 size={10} style={{ display: 'inline', marginRight: '4px' }} color="#10b981" />
-                    Indexed
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {doc.index_status === 'INDEXING' ? (
+                      <><Loader2 size={10} className="loader" color="var(--accent-blue)" /> Indexing vectors...</>
+                    ) : doc.index_status === 'FAILED' ? (
+                      <><AlertTriangle size={10} color="#ef4444" /> <span style={{color:'#ef4444'}}>{doc.index_error || 'Index failed'}</span></>
+                    ) : (
+                      <><CheckCircle2 size={10} color="#10b981" /> Indexed</>
+                    )}
                   </span>
                   {renderGraphStatus(doc)}
                 </div>
@@ -256,6 +282,11 @@ export default function VaultView({ width = 250 }) {
             </div>
           ))}
         </div>
+        {uploadError && (
+          <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>⚠</span> {uploadError}
+          </div>
+        )}
       </div>
 
       {/* System Footer */}
