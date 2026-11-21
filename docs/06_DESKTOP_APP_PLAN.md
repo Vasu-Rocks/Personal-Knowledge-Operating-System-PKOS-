@@ -145,6 +145,18 @@ calls (no keys). Known gap: the document list does not refresh for uploads made 
 - D4-4 Code signing: unsigned for now. The README and download page explain the SmartScreen warning ("More info" → "Run anyway"). The build script keeps a signing step that is skipped when no certificate is configured.
 - D4-5 Optional auto-update via `electron-updater` + GitHub Releases. The Postgres data folder stays compatible while the bundled major version stays 16.
 
+**Phase 4 status (2026-11-21): installer built, not yet installed.** `packaging\build.ps1` stages every runtime and runs
+electron-builder; see `packaging/README.md`. Result: `PKOS-Setup-0.1.0.exe` 845 MB (1.66 GB installed: pkos-api 671 MB,
+Ollama 753 MB, pgsql 107 MB, model 128 MB, UI 1 MB); full build ~18 min on this PC (PyInstaller 8 min, NSIS
+compression 12 min). Fixed on the way: the SQL migrations were not part of the frozen backend (the spike build only
+worked because no migration was required); they are now bundled and the backend refuses to start without them, and
+`pkos-api.exe --smoke-test` checks this during the build. The EDB PostgreSQL binaries need the VC++ runtime, now
+shipped next to them. Verified with the unpacked build (`win-unpacked`, separate data folder, bundled Ollama): all
+services start from the app folder, both migrations applied, the bundled embedding model loads offline in 0.4 s with
+no Hugging Face requests, a document indexes, the missing chat model is reported in plain words, quit stops every
+child. Open: installing/uninstalling the NSIS installer itself (D6-1), app icon, signing. Licensing: PyMuPDF is
+AGPL-3.0, which matters before the installer is given to anyone else.
+
 ### Phase 5: Data safety and maintenance
 - D5-1 Backup/export: bundled `pg_dump`; "Export vault" in Settings writes to `backups\`; "Restore" with confirmation.
 - D5-2 Automatic backup before every app update that includes migrations.

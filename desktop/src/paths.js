@@ -33,6 +33,8 @@ function resolvePaths({ packaged, resourcesPath, repoRoot = path.resolve(__dirna
           cwd: env.PKOS_BACKEND_DIR || repo('backend'),
         },
     webDir: env.PKOS_WEB_DIR || (packaged ? res('web') : repo('frontend', 'dist')),
+    // Bundled embedding model (packaged only); dev uses the normal Hugging Face cache.
+    embedModelDir: env.PKOS_EMBED_MODEL_DIR || (packaged ? res('models', 'bge-small-en-v1.5') : null),
     // Dev only: load the Vite dev server (hot reload) instead of the built files.
     devUrl: packaged ? null : (env.PKOS_DEV_URL || null),
   };

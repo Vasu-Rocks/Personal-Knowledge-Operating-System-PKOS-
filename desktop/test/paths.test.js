@@ -12,6 +12,7 @@ test('packaged app uses bundled runtimes and %LOCALAPPDATA%\\PKOS', () => {
   assert.equal(p.pgBin, path.join('C:\\Program Files\\PKOS\\resources', 'pgsql', 'bin'));
   assert.equal(p.backend.command, path.join('C:\\Program Files\\PKOS\\resources', 'pkos-api', 'pkos-api.exe'));
   assert.equal(p.devUrl, null);
+  assert.equal(p.embedModelDir, path.join('C:\\Program Files\\PKOS\\resources', 'models', 'bge-small-en-v1.5'));
 });
 
 test('dev run uses repo runtimes and a separate data folder', () => {

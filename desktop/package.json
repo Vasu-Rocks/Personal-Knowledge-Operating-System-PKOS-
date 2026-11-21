@@ -3,14 +3,57 @@
   "productName": "PKOS",
   "version": "0.1.0",
   "description": "PKOS desktop app: runs the database, Ollama and the PKOS backend locally.",
+  "author": "PKOS",
   "private": true,
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "dist": "powershell -NoProfile -ExecutionPolicy Bypass -File ../packaging/build.ps1"
   },
   "devDependencies": {
-    "electron": "45.2.3"
+    "electron": "45.2.3",
+    "electron-builder": "26.18.1"
+  },
+  "build": {
+    "appId": "dev.pkos.desktop",
+    "productName": "PKOS",
+    "copyright": "PKOS",
+    "directories": {
+      "output": "../build/installer",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      { "from": "../build/stage/web", "to": "web" },
+      { "from": "../build/stage/pkos-api", "to": "pkos-api" },
+      { "from": "../build/stage/pgsql", "to": "pgsql" },
+      { "from": "../build/stage/ollama", "to": "ollama" },
+      { "from": "../build/stage/models", "to": "models" },
+      { "from": "../build/stage/licenses", "to": "licenses" }
+    ],
+    "compression": "normal",
+    "win": {
+      "target": ["nsis"],
+      "executableName": "PKOS"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PKOS",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "include": "build-resources/installer.nsh",
+      "artifactName": "PKOS-Setup-${version}.exe"
+    }
   }
 }

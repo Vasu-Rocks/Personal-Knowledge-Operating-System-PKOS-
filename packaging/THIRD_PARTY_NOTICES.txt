@@ -1,0 +1,40 @@
+PKOS bundles the following third-party software. Each component is distributed under its own license;
+the full license texts are available at the URLs given.
+
+PostgreSQL 16 (database server and client tools)
+  PostgreSQL License - https://www.postgresql.org/about/licence/
+  Windows binaries from the EnterpriseDB distribution.
+
+pgvector (vector similarity search extension for PostgreSQL)
+  PostgreSQL License - https://github.com/pgvector/pgvector/blob/master/LICENSE
+
+Ollama (local model runtime), including its CPU, CUDA and Vulkan backends (ggml / llama.cpp)
+  MIT License - https://github.com/ollama/ollama/blob/main/LICENSE
+  ggml / llama.cpp: MIT License - https://github.com/ggml-org/llama.cpp/blob/master/LICENSE
+  NVIDIA CUDA runtime libraries: NVIDIA CUDA Toolkit EULA (redistributable components) -
+  https://docs.nvidia.com/cuda/eula/
+
+Microsoft Visual C++ Redistributable runtime DLLs (vcruntime140, msvcp140)
+  Microsoft Visual Studio redistribution terms - https://learn.microsoft.com/visualstudio/releases/2022/redistribution
+
+BAAI/bge-small-en-v1.5 (embedding model)
+  MIT License - https://huggingface.co/BAAI/bge-small-en-v1.5
+
+Electron and Chromium
+  MIT License (Electron) - https://github.com/electron/electron/blob/main/LICENSE
+  Chromium licenses are listed in LICENSES.chromium.html next to PKOS.exe.
+
+Python runtime and libraries bundled in pkos-api (PyInstaller)
+  Python: PSF License - https://docs.python.org/3/license.html
+  PyTorch: BSD-3-Clause - https://github.com/pytorch/pytorch/blob/main/LICENSE
+  sentence-transformers, transformers, tokenizers, safetensors, huggingface-hub: Apache-2.0
+  FastAPI, Starlette, Pydantic, Uvicorn, httpx: MIT / BSD-3-Clause
+  asyncpg: Apache-2.0; NumPy, SciPy: BSD-3-Clause; networkx: BSD-3-Clause
+  cryptography: Apache-2.0 or BSD-3-Clause; bcrypt: Apache-2.0; PyJWT: MIT
+  PyMuPDF: GNU AGPL-3.0 - https://github.com/pymupdf/PyMuPDF/blob/main/COPYING
+  langchain-text-splitters: MIT
+
+Inter typeface (bundled in the user interface)
+  SIL Open Font License 1.1 - https://github.com/rsms/inter/blob/master/LICENSE.txt
+
+React, react-markdown, remark-gfm, react-force-graph-2d, lucide-react: MIT / ISC

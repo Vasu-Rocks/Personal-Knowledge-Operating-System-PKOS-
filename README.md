@@ -37,6 +37,14 @@ docker compose up --build   # UI: http://localhost:3000, API: http://localhost:8
 The API container runs with `ENV=prod`, so it refuses to start without `PKOS_SECRET_KEY`. The embedding model (~130 MB) downloads on first use into a volume.
 The API URL is baked into the web image at build time (`VITE_API_BASE_URL`); rebuild after changing it.
 
+## Desktop app (Windows)
+A single installer that runs everything locally: PostgreSQL + pgvector, Ollama (with NVIDIA GPU support) and the
+PKOS engine start in the background; the first-run screen lets you download a local model or use an OpenAI/Anthropic
+API key. Data lives in `%LOCALAPPDATA%\PKOS`.
+- Development: see [`desktop/README.md`](desktop/README.md) (`npm run dev` in `desktop/`).
+- Building the installer: see [`packaging/README.md`](packaging/README.md).
+- Unsigned builds show a SmartScreen warning on install: "More info" → "Run anyway".
+
 ## Configuration
 All backend settings are environment variables; see `backend/.env.example` (database, Ollama, secret key, CORS origins, token lifetime, graph tuning).
 

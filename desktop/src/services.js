@@ -205,7 +205,13 @@ class BackendService {
       PYTHONUNBUFFERED: '1',
       PYTHONIOENCODING: 'utf-8',
     };
-    if (!this.paths.packaged) {
+    if (this.paths.embedModelDir && fs.existsSync(path.join(this.paths.embedModelDir, 'model.safetensors'))) {
+      // Load the bundled model from disk and never contact Hugging Face (offline, private).
+      env.PKOS_EMBED_MODEL = this.paths.embedModelDir;
+      env.HF_HUB_OFFLINE = '1';
+      env.TRANSFORMERS_OFFLINE = '1';
+      env.HF_HUB_DISABLE_TELEMETRY = '1';
+    } else if (!this.paths.packaged) {
       // Dev: reuse the normal Hugging Face cache instead of downloading the embedding model into the dev data folder.
       env.PKOS_EMBED_CACHE_DIR = process.env.PKOS_EMBED_CACHE_DIR
         || path.join(process.env.HF_HOME || path.join(require('os').homedir(), '.cache', 'huggingface'), 'hub');

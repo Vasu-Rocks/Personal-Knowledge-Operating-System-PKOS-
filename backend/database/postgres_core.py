@@ -356,7 +356,11 @@ async def apply_migrations(conn: asyncpg.Connection):
         );
     """)
     applied = {r["version"] for r in await conn.fetch("SELECT version FROM schema_version")}
-    for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")):
+    files = sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    if not files:
+        # A packaged build without the SQL files would silently run on an outdated schema.
+        raise RuntimeError(f"No migration files found in {MIGRATIONS_DIR}; the installation is incomplete.")
+    for path in files:
         version = int(path.name[:4])
         if version in applied:
             continue

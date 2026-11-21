@@ -26,8 +26,27 @@ def exit_with_parent(parent_pid: int):
     threading.Thread(target=watch, name="parent-watchdog", daemon=True).start()
 
 
+def smoke_test():
+    """`pkos-api.exe --smoke-test`: import everything the app needs (catches missing modules/data in a frozen build)."""
+    import main  # noqa: F401  (imports every route, the graph worker and the provider layer)
+    from database.postgres_core import MIGRATIONS_DIR
+    from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: F401
+    import fitz  # noqa: F401
+    import sentence_transformers  # noqa: F401
+
+    migrations = sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))
+    if not migrations:
+        raise SystemExit(f"no migrations in {MIGRATIONS_DIR}")
+    print(f"smoke test ok: {len(migrations)} migrations, sentence-transformers {sentence_transformers.__version__}")
+
+
 if __name__ == "__main__":
+    import sys
+
     multiprocessing.freeze_support()
+    if "--smoke-test" in sys.argv:
+        smoke_test()
+        raise SystemExit(0)
     if os.getenv("PKOS_PARENT_PID"):
         exit_with_parent(int(os.environ["PKOS_PARENT_PID"]))
 
