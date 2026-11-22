@@ -73,6 +73,19 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
             "theme questions, combine them (and any other blocks) into a short structured answer and cite each one.\n"
         )
 
+    # Citation examples are taken from this CONTEXT. A fixed example ("[Graph Entity: FastAPI]") was copied verbatim
+    # by small models into answers that had nothing to do with FastAPI.
+    examples = []
+    if retrieved_context:
+        examples.append("[Chunk 1]")
+    entity = next((n["name"] for n in (graph_data or {}).get("nodes", []) if n.get("name") and n["name"] in graph_context), None)
+    if entity:
+        examples.append(f"[Graph Entity: {entity}]")
+    citation_rule = (
+        f"3. You MUST cite your claims using only identifiers that appear in the CONTEXT, for example: "
+        f"{' or '.join(examples)}. Never cite a chunk number or entity that is not in the CONTEXT."
+    )
+
     # Conversation memory: earlier turns are for understanding the question, never a source of facts.
     memory_rule, summary_block = "", ""
     if history or summary:
@@ -92,7 +105,7 @@ Your core directive is to answer the user's question ONLY using the provided CON
 CRITICAL INSTRUCTIONS:
 1. If the exact answer is not contained within the CONTEXT, you must output exactly: "I cannot find the answer in your documents."
 2. Do NOT use outside knowledge. Do NOT make up information.
-3. You MUST cite your claims using the identifiers provided, for example: [Chunk 1] or [Graph Entity: FastAPI].
+{citation_rule}
 4. Format your answer thoughtfully using Markdown, placing citations in italics.
 {overview_rule}{memory_rule}{summary_block}
 ========== START CONTEXT ==========

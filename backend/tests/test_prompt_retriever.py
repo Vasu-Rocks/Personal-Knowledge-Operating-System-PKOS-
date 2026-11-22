@@ -61,3 +61,15 @@ def test_overview_rule_only_for_community_context():
     with_rule = build_rag_prompt("q", f"[Chunk 1] x ({COMMUNITY_MARKER})")[0]["content"]
     without = build_rag_prompt("q", "[Chunk 1] x")[0]["content"]
     assert "5. Blocks marked" in with_rule and "5. Blocks marked" not in without
+
+
+def test_citation_examples_come_from_the_context_never_a_fixed_name():
+    chunks_only = build_rag_prompt("q", "[Chunk 1] body")[0]["content"]
+    assert "for example: [Chunk 1]. Never cite" in chunks_only and "FastAPI" not in chunks_only
+
+    graph = {"nodes": [{"id": "1", "name": "Martin Keller", "description": "surveyor"}], "links": []}
+    both = build_rag_prompt("q", "[Chunk 1] body", graph)[0]["content"]
+    assert "for example: [Chunk 1] or [Graph Entity: Martin Keller]." in both
+
+    graph_only = build_rag_prompt("q", "", graph)[0]["content"]
+    assert "for example: [Graph Entity: Martin Keller]." in graph_only and "[Chunk 1]" not in graph_only
