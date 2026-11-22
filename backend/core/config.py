@@ -53,6 +53,9 @@ MEMORY_ENABLED = _env_bool("MEMORY_ENABLED", True)
 HISTORY_MAX_TURNS = int(os.getenv("HISTORY_MAX_TURNS", "6"))
 HISTORY_MAX_CHARS = int(os.getenv("HISTORY_MAX_CHARS", "2400"))
 SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "1200"))
+# Follow-ups are rewritten into standalone questions before search; after this many seconds the question as typed is used.
+# Generous on purpose: a local model that has to load first takes ~8 s, and that load is needed for the answer anyway.
+REWRITE_TIMEOUT = float(os.getenv("REWRITE_TIMEOUT", "20"))
 
 # Global search (G5): broad questions are answered from community summaries.
 GRAPH_GLOBAL_SEARCH = _env_bool("GRAPH_GLOBAL_SEARCH", True)

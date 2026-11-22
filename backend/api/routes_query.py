@@ -14,6 +14,7 @@ from core import config
 from core.llm import LLMSettings
 from database import conversations_db
 from database.llm_settings_db import load_llm_settings
+from rag.memory.rewrite import rewrite_question
 from rag.memory.stm import build_history
 from rag.query.generator import generate_rag_response_stream
 from rag.query.prompt_builder import build_rag_prompt
@@ -40,6 +41,16 @@ def _sse(event) -> str:
     return f"data: {event if isinstance(event, str) else json.dumps(event)}\n\n"
 
 
+def _previous_answer(recent: list[dict]) -> dict | None:
+    """The last usable answer of the chat with the passages it was based on, or None (then a new search runs)."""
+    for message in reversed(recent):
+        if message["role"] == "assistant":
+            if message["status"] in ("complete", "partial") and message.get("sources"):
+                return message
+            return None
+    return None
+
+
 def _graph_snapshot(graph: dict) -> dict | None:
     nodes = (graph or {}).get("nodes") or []
     if not nodes:
@@ -58,8 +69,9 @@ async def process_query_stream(
     pool: asyncpg.Pool = Depends(get_db)
 ):
     """
-    Answers one question as Server-Sent Events, in this order: conversation (the chat it was saved in), sources,
-    graph, token..., saved (the ids of the stored question and answer), [DONE].
+    Answers one question as Server-Sent Events, in this order: conversation (the chat it was saved in), rewrite
+    (follow-ups only: the question actually searched), sources, graph, token..., saved (the ids of the stored question
+    and answer), [DONE].
     The question and the answer are stored in the chat; an answer cut short by the client is stored as 'partial',
     a provider failure as 'error'.
     """
@@ -68,7 +80,7 @@ async def process_query_stream(
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
     active_user_id = current_user["user_id"]
-    history, summary = [], None
+    history, summary, recent = [], None, []
     if payload.conversation_id:
         existing = await conversations_db.get_owned_conversation(pool, active_user_id, payload.conversation_id)
         if existing is None:
@@ -93,10 +105,27 @@ async def process_query_stream(
         })
 
     try:
-        query_vector_np = await run_in_threadpool(embed_query, user_query)
-        query_vector_list = query_vector_np.flatten().tolist()
-
-        raw_chunks, graph_data = await retrieve_context(pool, active_user_id, user_query, query_vector_list)
+        # Follow-ups are searched as a complete question ("when does he come?" -> "when does the surveyor visit
+        # the station?"); the model still sees the question as typed, with the history around it.
+        rewrite = await rewrite_question(settings, history, summary, user_query)
+        previous = _previous_answer(recent) if not rewrite.needs_search else None
+        if previous is not None:
+            # Only the previous answer is being reworked ("shorter, please"): same passages, no new search.
+            raw_chunks = previous["sources"]
+            graph_data = previous["graph"] or {"nodes": [], "links": []}
+        else:
+            rewrite.needs_search = True
+            query_vector_np = await run_in_threadpool(embed_query, rewrite.question)
+            query_vector_list = query_vector_np.flatten().tolist()
+            raw_chunks, graph_data = await retrieve_context(pool, active_user_id, rewrite.question, query_vector_list)
+            if not raw_chunks and not graph_data.get("nodes") and (history or summary):
+                # A follow-up whose search found nothing ("translate that", misjudged as needing search) is most
+                # likely still about the previous answer: give the model those passages rather than nothing. The
+                # rules still make it say it cannot find the answer if they do not contain it.
+                previous = _previous_answer(recent)
+                if previous is not None:
+                    raw_chunks = previous["sources"]
+                    graph_data = previous["graph"] or {"nodes": [], "links": []}
 
         # Do all string building and prompt parsing safely inside the try block
         # so any exceptions return a proper 500 status before response headers are sent
@@ -109,7 +138,10 @@ async def process_query_stream(
         conversation_id = payload.conversation_id
         if conversation_id is None:
             conversation_id = uuid.UUID((await conversations_db.create_conversation(pool, active_user_id))["conversation_id"])
-        question = await conversations_db.append_message(pool, active_user_id, conversation_id, "user", user_query)
+        question = await conversations_db.append_message(
+            pool, active_user_id, conversation_id, "user", user_query,
+            standalone_query=rewrite.question if history or summary else None,
+            needs_search=rewrite.needs_search if history or summary else None)
         conversation = await conversations_db.get_owned_conversation(pool, active_user_id, conversation_id)
         if question is None or conversation is None:  # deleted between the check above and now
             raise HTTPException(status_code=404, detail="Chat not found.")
@@ -134,6 +166,10 @@ async def process_query_stream(
         answer, finished = [], False
         try:
             yield _sse({"type": "conversation", "conversation_id": str(conversation_id), "title": conversation["title"]})
+            if history or summary:
+                # Shown under the question ("Searched for: ..."), so a poor rewrite is visible, not silent.
+                yield _sse({"type": "rewrite", "standalone": rewrite.question, "needs_search": rewrite.needs_search,
+                            "rewritten": rewrite.rewritten})
             # Sources first for the X-Ray sidebar, then the graph.
             yield _sse({"type": "sources", "sources": raw_chunks})
             yield _sse({"type": "graph", "data": graph_data})

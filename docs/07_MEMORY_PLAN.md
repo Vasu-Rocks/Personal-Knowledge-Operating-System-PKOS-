@@ -184,6 +184,24 @@ Changed files:
 
 Each step ends with all tests and lint passing and its own commit.
 
+### Step 4 results (2026-11-23, `backend/eval_followups.py`, llama3.2 3B on CPU, bge-small embeddings)
+
+20 short passages, 8 of them deliberate look-alikes (another glacier, the old sensors, last year's budget...);
+15 follow-ups after a one-turn chat; "reaches the answer" = in the top 3 *and* under PKOS's 0.35 distance cutoff.
+
+| | as typed | rewritten |
+|---|---|---|
+| right passage ranked first | 10/15 | 13/15 |
+| right passage reaches the answer | **0/15** | **14/15** |
+| "shorter / bullet list / simpler / translate" judged as no search | - | 4/4 |
+| new-topic follow-ups judged as needing search | - | 2/2 |
+| rewrite time (model loaded) | - | median 1.3 s, max 1.5 s |
+
+What the first run changed: the timeout went from 8 to 20 s (a model that must load first took 8.0 s and fell back,
+although that load is needed for the answer anyway); the prompt gained a translate example and a rule against joining a
+new topic to the old one (one rewrite had produced "the ice loss measurements in the 2024 budget"); and a follow-up
+whose search finds nothing now keeps the previous turn's passages instead of ending in "I cannot find the answer".
+
 ## 10. Part B - long-term memory (outline, built after Part A)
 
 - **Table `memories`:** `memory_id`, `user_id`, `text` (<= 300 characters), `embedding vector(384)`, `kind`

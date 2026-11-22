@@ -106,6 +106,15 @@ def client():
     mp.setattr(routes_ingest, "embed_text_batch", lambda texts: np.stack([fake_vector(t) for t in texts]))
     mp.setattr(routes_query, "embed_query", lambda q: fake_vector(q).reshape(1, -1))
     mp.setattr(routes_query, "generate_rag_response_stream", fake_stream)
+
+    # Follow-up rewriting calls the model too: by default the question is searched as typed (tests that need a
+    # rewrite patch routes_query.rewrite_question themselves).
+    from rag.memory.rewrite import Rewrite
+
+    async def no_rewrite(settings, history, summary, question, timeout=None):
+        return Rewrite(question, True, False)
+
+    mp.setattr(routes_query, "rewrite_question", no_rewrite)
     with TestClient(main.app) as c:
         yield c
     mp.undo()
