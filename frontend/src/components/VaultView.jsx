@@ -7,7 +7,13 @@ import ConnectionsView from './ConnectionsView';
 import KnowledgeMapView from './KnowledgeMapView';
 import { UPLOAD_EXTS, UPLOAD_ACCEPT, UPLOAD_LABEL } from '../lib/fileTypes';
 
-export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
+const TAB_KEY = 'pkos_left_tab';
+
+function readTab() {
+  try { return localStorage.getItem(TAB_KEY) === 'chats' ? 'chats' : 'documents'; } catch { return 'documents'; }
+}
+
+export default function VaultView({ width = 250, onOpenSetup, onAiChanged, chatsPanel = null }) {
   const { authFetch, logout, user } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [isHovering, setIsHovering] = useState(false);
@@ -18,6 +24,11 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
   const [showMap, setShowMap] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
+  const [tab, setTab] = useState(readTab);
+  const chooseTab = (next) => {
+    setTab(next);
+    try { localStorage.setItem(TAB_KEY, next); } catch { /* a convenience only */ }
+  };
 
   const fetchDocuments = useCallback(async () => {
     try {
@@ -166,6 +177,24 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
         </p>
       </div>
 
+      {/* Documents / Chats */}
+      <div role="tablist" style={{ display: 'flex', gap: '4px', padding: '10px 12px 0', borderBottom: 'var(--pane-border)' }}>
+        {[['documents', 'Documents'], ['chats', 'Chats']].map(([key, label]) => (
+          <button
+            key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => chooseTab(key)}
+            style={{
+              flex: 1, padding: '8px', fontSize: '13px', background: 'transparent', border: 'none', cursor: 'pointer',
+              color: tab === key ? 'var(--text-primary)' : 'var(--text-muted)',
+              borderBottom: tab === key ? '2px solid var(--accent-blue)' : '2px solid transparent',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'chats' ? chatsPanel : (
+      <>
       {/* Upload Zone */}
       <div style={{ padding: '20px', borderBottom: 'var(--pane-border)' }}>
         <div
@@ -290,6 +319,9 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
           </div>
         )}
       </div>
+
+      </>
+      )}
 
       {/* System Footer */}
       <div style={{ padding: '16px', borderTop: 'var(--pane-border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/useAuth';
 import VaultView from './VaultView';
 import { API } from '../api';
@@ -8,12 +8,28 @@ import useAiStatus from './ai/useAiStatus';
 import StatusBadge from './ai/StatusBadge';
 import SetupWizard from './ai/SetupWizard';
 import MediaInput from './MediaInput';
-
-const SETUP_SKIPPED = 'pkos_ai_setup_skipped'; // sessionStorage: skipping lasts until the app restarts
+import ChatList from './chats/ChatList';
+import useChats from './chats/useChats';
+import { getConversation } from '../lib/conversationsApi';
+import { EMPTY_GRAPH, prepareGraph, toUiMessages } from '../lib/chatView';
 import { Send, Terminal, KeySquare, Activity, Bot, User, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ForceGraph2D from 'react-force-graph-2d';
+
+const SETUP_SKIPPED = 'pkos_ai_setup_skipped'; // sessionStorage: skipping lasts until the app restarts
+const SYS_ID = 'sys_init';
+const LAST_CHAT_KEY = 'pkos_last_chat'; // a convenience only: the server decides whose chat it is (404 otherwise)
+const initialMessages = () => [
+  { id: SYS_ID, type: 'system', text: 'Secured encrypted channel established. Waiting for input...', sources: [] },
+];
+function remember(id) {
+  try { if (id) localStorage.setItem(LAST_CHAT_KEY, id); else localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
+}
+
+function rememberedChat() {
+  try { return localStorage.getItem(LAST_CHAT_KEY); } catch { return null; }
+}
 
 export default function Dashboard() {
   const { authFetch } = useAuth();
@@ -43,22 +59,68 @@ export default function Dashboard() {
     ai.refresh();
   };
 
-  const [messages, setMessages] = useState([
-    {
-      id: "sys_init",
-      type: "system",
-      text: "Secured encrypted channel established. Waiting for input...",
-      sources: []
-    }
-  ]);
+  const [messages, setMessages] = useState(initialMessages);
   const [inputVal, setInputVal] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [selectedMsgId, setSelectedMsgId] = useState("sys_init");
+  const [selectedMsgId, setSelectedMsgId] = useState(SYS_ID);
   const messagesEndRef = useRef(null);
 
   // Graph State
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const [graphData, setGraphData] = useState(EMPTY_GRAPH);
   const graphRef = useRef(null);
+
+  // Saved chats (docs/07_MEMORY_PLAN.md): the open chat, and the list in the left panel.
+  const chats = useChats(authFetch);
+  const [conversationId, setConversationId] = useState(null);
+  const [chatTitle, setChatTitle] = useState(null);
+
+  const newChat = useCallback(() => {
+    if (isTyping) return;
+    setConversationId(null);
+    setChatTitle(null);
+    setMessages(initialMessages());
+    setSelectedMsgId(SYS_ID);
+    setGraphData(EMPTY_GRAPH);
+    remember(null);
+  }, [isTyping]);
+
+  const openChat = useCallback(async (id) => {
+    if (isTyping) return;
+    try {
+      const conv = await getConversation(authFetch, id);
+      const ui = toUiMessages(conv.messages || []);
+      const lastAnswer = [...(conv.messages || [])].reverse().find((m) => m.role === 'assistant');
+      setConversationId(conv.conversation_id);
+      setChatTitle(conv.title);
+      setMessages(ui.length ? ui : initialMessages());
+      setSelectedMsgId(lastAnswer ? lastAnswer.message_id : SYS_ID);
+      setGraphData(lastAnswer && lastAnswer.graph ? prepareGraph(lastAnswer.graph) : EMPTY_GRAPH);
+      remember(conv.conversation_id);
+    } catch (err) {
+      if (err.status === 404) {
+        remember(null); // deleted, or another user's chat on this PC
+        chats.refresh();
+        return;
+      }
+      setMessages((prev) => [...prev, { id: `err_${Date.now()}`, type: 'system', sources: [],
+        text: `[ERROR] Could not open the chat: ${err.message}` }]);
+    }
+  }, [authFetch, isTyping, chats]);
+
+  const deleteChat = useCallback(async (id) => {
+    await chats.remove(id);
+    if (id === conversationId) newChat();
+  }, [chats, conversationId, newChat]);
+
+  // First load: the chat list, and the chat that was open last time.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    chats.refresh();
+    const last = rememberedChat();
+    if (last) openChat(last);
+  }, [chats, openChat]);
 
   // Cross-Filtering State
   const [activeFocus, setActiveFocus] = useState(null);
@@ -201,7 +263,8 @@ export default function Dashboard() {
       const res = await authFetch(`${API}/query/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        // A follow-up goes into the open chat; without an id the server starts a new chat and names it.
+        body: JSON.stringify(conversationId ? { query, conversation_id: conversationId } : { query })
       });
 
       if (!res.ok) throw new Error("Query Streaming Failed");
@@ -209,36 +272,24 @@ export default function Dashboard() {
       await readSSE(res, (payloadStr) => {
         try {
           const parsed = JSON.parse(payloadStr);
-          if (parsed.type === 'sources') {
+          if (parsed.type === 'conversation') {
+            setConversationId(parsed.conversation_id);
+            setChatTitle(parsed.title);
+            chats.touch(parsed.conversation_id, parsed.title);
+            remember(parsed.conversation_id);
+          } else if (parsed.type === 'rewrite') {
+            // What was actually searched, shown under the question so a poor rewrite is visible.
+            setMessages(prev => prev.map(m => (m.id === userMsgId ? {
+              ...m,
+              searched: parsed.needs_search && parsed.rewritten ? parsed.standalone : null,
+              reused: !parsed.needs_search,
+            } : m)));
+          } else if (parsed.type === 'sources') {
             setMessages(prev => prev.map(m => 
               m.id === aiMsgId ? { ...m, sources: parsed.sources || [] } : m
             ));
           } else if (parsed.type === 'graph') {
-            const gData = parsed.data || { nodes: [], links: [] };
-            
-            // O(1) Precompute neighbors
-            const neighborMap = new Map();
-            gData.links.forEach(l => {
-              const src = typeof l.source === 'object' ? l.source.id : l.source;
-              const tgt = typeof l.target === 'object' ? l.target.id : l.target;
-              if (!neighborMap.has(src)) neighborMap.set(src, new Set());
-              if (!neighborMap.has(tgt)) neighborMap.set(tgt, new Set());
-              neighborMap.get(src).add(tgt);
-              neighborMap.get(tgt).add(src);
-            });
-
-            gData.nodes.forEach(n => {
-              n.neighbors = neighborMap.get(n.id) || new Set();
-              if (n.isPrimarySeed) {
-                n.fx = 0;
-                n.fy = 0;
-                n.name = `⭐ ${n.name}`;
-                n.val = 5; // Make it significantly larger than surrounding nodes
-              } else {
-                n.val = 1; // Default size
-              }
-            });
-            setGraphData(gData);
+            setGraphData(prepareGraph(parsed.data || { nodes: [], links: [] }));
           } else if (parsed.type === 'token') {
             setMessages(prev => prev.map(m => 
               m.id === aiMsgId ? { ...m, text: m.text + parsed.content } : m
@@ -267,7 +318,17 @@ export default function Dashboard() {
   return (
     <div className="os-shell">
       {/* 1. Left: Vault / Documents */}
-      <VaultView width={leftWidth} onOpenSetup={() => setSetupOpen(true)} onAiChanged={ai.refresh} />
+      <VaultView
+        width={leftWidth} onOpenSetup={() => setSetupOpen(true)} onAiChanged={ai.refresh}
+        chatsPanel={(
+          <ChatList
+            chats={chats.chats} activeId={conversationId} loading={chats.loading} error={chats.error}
+            hasMore={chats.hasMore} onLoadMore={chats.loadMore} onNew={newChat} onOpen={openChat}
+            onRename={async (id, title) => { await chats.rename(id, title); if (id === conversationId) setChatTitle(title); }}
+            onDelete={deleteChat}
+          />
+        )}
+      />
       {setupOpen && <SetupWizard status={ai.llm} onClose={closeSetup} />}
       
       {/* Resizer Left */}
@@ -285,6 +346,12 @@ export default function Dashboard() {
         <div style={{ height: '60px', borderBottom: 'var(--pane-border)', display: 'flex', alignItems: 'center', padding: '0 24px', background: 'rgba(0,0,0,0.1)' }}>
           <Terminal size={18} color="var(--accent-blue)" style={{ marginRight: '12px' }} />
           <span style={{ fontWeight: '500', fontSize: '14px', letterSpacing: '0.5px' }}>Generative Inference Core</span>
+          <span data-testid="chat-title" title={chatTitle || 'New chat'} style={{
+            marginLeft: '12px', fontSize: '13px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap', maxWidth: '40%',
+          }}>
+            · {chatTitle || 'New chat'}
+          </span>
           <StatusBadge llm={ai.llm} system={ai.system} error={ai.error} onClick={() => setSetupOpen(true)} />
         </div>
 
@@ -328,7 +395,19 @@ export default function Dashboard() {
                     </ReactMarkdown>
                   </div>
                 ) : (
-                  msg.text
+                  <>
+                    {msg.text}
+                    {msg.searched && (
+                      <div className="searched-for" style={{ fontSize: '11px', opacity: 0.8, marginTop: '6px', fontStyle: 'italic' }}>
+                        Searched for: {msg.searched}
+                      </div>
+                    )}
+                    {msg.reused && (
+                      <div className="searched-for" style={{ fontSize: '11px', opacity: 0.8, marginTop: '6px', fontStyle: 'italic' }}>
+                        Reworking the previous answer (same sources)
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

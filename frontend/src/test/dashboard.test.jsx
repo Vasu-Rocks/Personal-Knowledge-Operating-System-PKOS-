@@ -20,6 +20,7 @@ function routes(llmStatus, extra = {}) {
     'GET /system/status': jsonResponse(200, SYSTEM),
     'GET /settings/llm': jsonResponse(200, SETTINGS),
     'GET /ollama/models': jsonResponse(200, { models: [] }),
+    'GET /conversations': jsonResponse(200, { conversations: [], next_before: null }),
     ...extra,
   };
 }
