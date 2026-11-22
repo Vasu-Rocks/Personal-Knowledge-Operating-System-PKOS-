@@ -29,9 +29,9 @@ def strip_citations(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines()).strip()
 
 
-def _turns(messages: list[dict]) -> list[tuple[str, str]]:
-    """(question, answer) pairs in order. A question without an answer, a failed answer or an empty interrupted one
-    drops the whole turn: the model sees strictly alternating user/assistant messages."""
+def _turns(messages: list[dict]) -> list[tuple[str, str, int | None]]:
+    """(question, answer, seq of the answer) in order. A question without an answer, a failed answer or an empty
+    interrupted one drops the whole turn: the model sees strictly alternating user/assistant messages."""
     turns, question = [], None
     for m in messages:
         if m["role"] == "user":
@@ -45,23 +45,17 @@ def _turns(messages: list[dict]) -> list[tuple[str, str]]:
             continue
         if m.get("status") == "partial":
             answer += INTERRUPTED
-        turns.append((question, answer))
+        turns.append((question, answer, m.get("seq")))
         question = None
     return turns
 
 
-def build_history(messages: list[dict], max_chars: int | None = None, max_turns: int | None = None) -> list[dict]:
-    """
-    Chat messages for the most recent turns that fit the character budget, oldest first.
-    The newest turn is always kept (its answer shortened if needed); older ones are added while they fit.
-    """
-    max_chars = config.HISTORY_MAX_CHARS if max_chars is None else max_chars
-    max_turns = config.HISTORY_MAX_TURNS if max_turns is None else max_turns
+def _window(turns: list[tuple], max_chars: int, max_turns: int) -> list[tuple[str, str]]:
+    """The newest turns that fit, oldest first. The newest turn is always kept (its answer shortened if needed)."""
     if max_chars <= 0 or max_turns <= 0:
         return []
-
     kept, used = [], 0
-    for question, answer in reversed(_turns(messages)[-max_turns:]):
+    for question, answer, _seq in reversed(turns[-max_turns:]):
         size = len(question) + len(answer)
         if used + size > max_chars:
             if kept:
@@ -72,8 +66,25 @@ def build_history(messages: list[dict], max_chars: int | None = None, max_turns:
             size = len(question) + len(answer)
         kept.append((question, answer))
         used += size
+    return list(reversed(kept))
 
+
+def build_history(messages: list[dict], max_chars: int | None = None, max_turns: int | None = None) -> list[dict]:
+    """Chat messages for the most recent turns that fit the character budget (HISTORY_MAX_CHARS/TURNS), oldest first."""
+    max_chars = config.HISTORY_MAX_CHARS if max_chars is None else max_chars
+    max_turns = config.HISTORY_MAX_TURNS if max_turns is None else max_turns
     history = []
-    for question, answer in reversed(kept):
+    for question, answer in _window(_turns(messages), max_chars, max_turns):
         history += [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
     return history
+
+
+def turns_outside_window(messages: list[dict], max_chars: int | None = None,
+                         max_turns: int | None = None) -> list[tuple[str, str, int]]:
+    """The older turns that no longer fit the history window: (question, answer, seq of the answer), oldest first.
+    These are what the running summary must absorb, or the model would lose them."""
+    max_chars = config.HISTORY_MAX_CHARS if max_chars is None else max_chars
+    max_turns = config.HISTORY_MAX_TURNS if max_turns is None else max_turns
+    turns = _turns(messages)
+    kept = len(_window(turns, max_chars, max_turns))
+    return turns[:len(turns) - kept] if max_turns > 0 and max_chars > 0 else []

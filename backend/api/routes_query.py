@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import uuid
@@ -16,6 +17,7 @@ from database import conversations_db
 from database.llm_settings_db import load_llm_settings
 from rag.memory.rewrite import rewrite_question
 from rag.memory.stm import build_history
+from rag.memory.summary import update_summary
 from rag.query.generator import generate_rag_response_stream
 from rag.query.prompt_builder import build_rag_prompt
 from rag.query.retrieval import retrieve_context
@@ -39,6 +41,30 @@ class QueryRequest(BaseModel):
 
 def _sse(event) -> str:
     return f"data: {event if isinstance(event, str) else json.dumps(event)}\n\n"
+
+
+# Background summary updates: references keep the tasks alive; one at a time per chat.
+_summary_tasks: set[asyncio.Task] = set()
+_summarizing: set[uuid.UUID] = set()
+
+
+def _summarize_later(pool: asyncpg.Pool, settings: LLMSettings, user_id: str, conversation_id: uuid.UUID):
+    """Folds old turns into the chat's running summary after the response, without delaying it."""
+    if not config.MEMORY_ENABLED or conversation_id in _summarizing:
+        return
+
+    async def run():
+        try:
+            await update_summary(pool, settings, user_id, conversation_id)
+        except Exception:
+            logger.exception("Summary update failed for chat %s", conversation_id)
+        finally:
+            _summarizing.discard(conversation_id)
+
+    _summarizing.add(conversation_id)
+    task = asyncio.get_running_loop().create_task(run())
+    _summary_tasks.add(task)
+    task.add_done_callback(_summary_tasks.discard)
 
 
 def _previous_answer(recent: list[dict]) -> dict | None:
@@ -186,8 +212,11 @@ async def process_query_stream(
                     yield _sse(token_event_str)
 
             text = "".join(answer)
-            saved = await save_answer(text, "error" if text.startswith(ERROR_PREFIX) else "complete")
+            status = "error" if text.startswith(ERROR_PREFIX) else "complete"
+            saved = await save_answer(text, status)
             finished = True
+            if saved and status == "complete":
+                _summarize_later(pool, settings, active_user_id, conversation_id)
             yield _sse({"type": "saved", "question_id": question["message_id"],
                         "answer_id": saved["message_id"] if saved else None})
             yield _sse("[DONE]")

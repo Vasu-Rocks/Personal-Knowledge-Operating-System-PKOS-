@@ -202,6 +202,18 @@ although that load is needed for the answer anyway); the prompt gained a transla
 new topic to the old one (one rewrite had produced "the ice loss measurements in the 2024 budget"); and a follow-up
 whose search finds nothing now keeps the previous turn's passages instead of ending in "I cannot find the answer".
 
+### Step 5 results (2026-11-23, llama3.2 3B on CPU)
+
+Turns are folded when they no longer fit the history window (by turns or characters), oldest first, at most 10 per
+update, in a background task after a complete answer; a failed update keeps the old summary and is retried after the
+next answer; a summary is only saved over the version it was built from.
+
+Check on a made-up 11-turn chat folded in 4 rounds: the first prompt produced a transcript ("The user asked... The
+assistant found..."), 627 -> 924 characters after two rounds, which would have hit the 1200 cap and been cut. After
+asking for a summary rather than a transcript, a target of 80% of the cap and older parts compressed first (plus one
+"shorten" call before any cut), the 4 rounds gave 366 / 511 / 678 / 814 characters, all 9 checked facts kept (names,
+amounts, dates), nothing invented, 3-4 s per round.
+
 ## 10. Part B - long-term memory (outline, built after Part A)
 
 - **Table `memories`:** `memory_id`, `user_id`, `text` (<= 300 characters), `embedding vector(384)`, `kind`

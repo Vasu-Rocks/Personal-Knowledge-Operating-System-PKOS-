@@ -134,3 +134,15 @@ async def append_message(pool: asyncpg.Pool, user_id: str, conversation_id: uuid
             json.dumps(sources) if sources is not None else None, json.dumps(graph) if graph is not None else None,
             status, provider, model)
     return _message(row)
+
+
+async def save_summary(pool: asyncpg.Pool, user_id: str, conversation_id: uuid.UUID, summary: str, *,
+                       upto_seq: int, expected_upto_seq: int) -> bool:
+    """Stores a new running summary, but only if the summary still covers expected_upto_seq: a concurrent update
+    that got there first wins, and this one is dropped instead of overwriting it with an older view."""
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """UPDATE conversations SET summary = $3, summary_upto_seq = $4
+               WHERE conversation_id = $1 AND user_id = $2 AND summary_upto_seq = $5 AND $4 > $5""",
+            conversation_id, uuid.UUID(user_id), summary, upto_seq, expected_upto_seq)
+    return result.endswith(" 1")

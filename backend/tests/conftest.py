@@ -115,6 +115,12 @@ def client():
         return Rewrite(question, True, False)
 
     mp.setattr(routes_query, "rewrite_question", no_rewrite)
+
+    # The running summary would call the model in the background; tests that need it patch it back in.
+    async def no_summary(pool, settings, user_id, conversation_id):
+        return False
+
+    mp.setattr(routes_query, "update_summary", no_summary)
     with TestClient(main.app) as c:
         yield c
     mp.undo()
