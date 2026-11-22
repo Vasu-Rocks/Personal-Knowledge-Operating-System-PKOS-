@@ -64,8 +64,8 @@ export default function CloudKeyForm({ provider, saved, draft, onChange }) {
         </div>
       )}
       <div className="ai-alert ai-alert-warn">
-        With a cloud provider, the text of your questions, the matching passages and the documents you add to the
-        knowledge map are sent to {info.label}. Building the map for large documents uses many requests, which your
+        With a cloud provider, the text of your questions, the recent messages and summary of the chat, the matching
+        passages and the documents you add to the knowledge map are sent to {info.label}. Building the map for large documents uses many requests, which your
         {` ${info.label}`} account is billed for.
       </div>
     </div>

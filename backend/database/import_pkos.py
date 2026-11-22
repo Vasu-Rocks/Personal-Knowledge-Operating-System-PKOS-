@@ -8,6 +8,7 @@ One-time import from another PKOS database (desktop app plan D5-3), e.g. the old
 - document_chunks.chunk_id is a SERIAL: chunks get fresh IDs here and every reference (chunk_entity_junction,
   relationship_mentions) is rewritten, so they can never collide with chunks already in the app.
 - Vectors are copied as-is (same embedding model), as text through COPY CSV.
+- Saved chats and their messages are copied (a source from before saved chats simply has none).
 - Saved AI settings are not copied: their API keys are encrypted with the other installation's secret.
 - Only columns present on both sides are copied, so an older source schema works too.
 """
@@ -36,6 +37,10 @@ TABLES = [
     ("concept_links", "user_id = ANY($1::uuid[])"),
     ("graph_jobs", "user_id = ANY($1::uuid[])"),
     ("graph_state", "user_id = ANY($1::uuid[])"),
+    # Saved chats (migration 0003). Their sources are snapshots (text included), so the chunk ids inside them are
+    # labels only and need no remapping.
+    ("conversations", "user_id = ANY($1::uuid[])"),
+    ("messages", "conversation_id IN (SELECT conversation_id FROM conversations WHERE user_id = ANY($1::uuid[]))"),
 ]
 CHUNK_REFERENCING = {"chunk_entity_junction", "relationship_mentions"}
 

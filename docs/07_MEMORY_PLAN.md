@@ -1,7 +1,11 @@
 # 07 - Conversation memory: sessions, short-term memory (STM), long-term memory (LTM)
 
-Status: plan, 2026-11-23. Part A (sessions + STM) is built first, step by step (section 9). Part B (LTM) follows and is
-outlined in section 10 so that Part A's schema and code leave room for it.
+Status: Part A (sessions + STM) built, 2026-11-23, in version 0.5.0 (all 7 steps of section 9; results under steps 4
+and 5). Part B (LTM) is next and is outlined in section 10; Part A's schema and code leave room for it.
+
+Deviations from the plan as written: users keep their IDs in the import tool, so chats are copied without remapping;
+the diagnostics report holds no database content at all, so there were no chat counts to add; the citation rule's
+fixed example was replaced by examples from the context (found while checking step 6 in the app).
 
 ## 1. Goal
 

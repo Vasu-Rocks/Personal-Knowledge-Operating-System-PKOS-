@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | 03 — Architecture |
-| Version | 1.0 (verified against code, 2026-10-23) |
+| Version | 1.1 (saved chats and conversation memory added, 2026-11-23) |
 | Related | [01_PRD](01_PRD.md) · [02_SRS](02_SRS.md) · [04_UI_UX](04_UI_UX.md) · [05_Dev_Plan](05_DEVELOPMENT_PLAN.md) |
 
 Status legend: ✅ implemented · 🟡 partial · ❌ planned.
@@ -65,7 +65,8 @@ pkos_v2/
 │  │  ├─ dependencies.py       get_db (pool from app.state), get_current_user (JWT → user)
 │  │  ├─ routes_auth.py        /register, /login, /me
 │  │  ├─ routes_ingest.py      /documents (GET), /upload (POST), /documents/{id} (DELETE)
-│  │  ├─ routes_query.py       /query (POST, non-stream), /query/stream (POST, SSE)
+│  │  ├─ routes_query.py       /query/stream (POST, SSE): answers, saves them in a chat, uses its memory
+│  │  ├─ routes_conversations.py /conversations: list, create, open, rename, delete saved chats
 │  │  └─ routes_graph.py       /graph/cluster, /graph/summarize
 │  ├─ core/security.py         bcrypt hash/verify, JWT create; SECRET_KEY (hard-coded!)
 │  ├─ database/
@@ -112,6 +113,8 @@ Generator-based to bound memory: page → clean → chunk → payload `{text, me
 
 ### 4.4 Query pipeline (`rag/query`, `rag/vector`)
 Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::retrieve_context`, shared by `/query` and `/query/stream`): (A) top-3 chunk HNSW search, (B) `rag/graph/search.py`: seeds (name match + embedding) → ranked 1-hop edges → up to 2 graph-found chunks via `chunk_entity_junction` / `relationship_mentions` → `[Chunk N]`-labelled context (≤6,000 chars, graph ≤1,800) → build messages → provider-specific streaming generator. Set `GRAPH_LOCAL_EXPANSION=false` to fall back to the pre-G4 path. Evaluation: `backend/eval_graph.py` (questions in `backend/eval/`).
+
+**Conversation memory** (`rag/memory`, plan: [07_MEMORY_PLAN](07_MEMORY_PLAN.md)). Every question and answer is saved in a chat (`conversations`, `messages`; migration 0003). For a follow-up, the chat's recent turns (≤6 turns, ≤2,400 chars, citation markers stripped; `stm.py`) and its running summary go into the prompt with a rule that they only explain the question, facts still come from CONTEXT. Before retrieval, `rewrite.py` turns the follow-up into a standalone question (one short JSON call; any failure → the question as typed) and decides whether new search is needed ("shorter, please" reuses the previous passages); that standalone question is what gets embedded and searched. After a complete answer, `summary.py` folds turns that left the window into the running summary (≤1,200 chars) in a background task. `MEMORY_ENABLED=false` switches history, rewriting and summaries off. Evaluation: `backend/eval_followups.py`.
 
 ### 4.5 Graph RAG (`rag/graph`)
 | Module | Role | Trigger |
@@ -165,8 +168,14 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 | GET | `/documents` | ✔ | – | `{documents:[{doc_id, filename, timestamp}]}` | ✅ (add status) |
 | POST | `/upload` | ✔ | multipart `file` | `{message, document_id, filename, total_chunks_processed}` | ✅ |
 | DELETE | `/documents/{doc_id}` | ✔ | – | `{message}` | ✅ |
-| POST | `/query` | ✔ | `{query}` | `{query, response, sources[]}` | 🟡 Ollama only; unused by UI |
-| POST | `/query/stream` | ✔ | `{query}` + headers `X-LLM-Provider`, `X-Ollama-Model`, `X-OpenAI-Key`, `X-Anthropic-Key` | SSE: `sources` → `graph` → `token`* → `[DONE]` | ✅ |
+| POST | `/query/stream` | ✔ | `{query, conversation_id?}` (no id: a new chat is started) | SSE: `conversation` → `rewrite` (follow-ups) → `sources` → `graph` → `token`* → `saved` → `[DONE]`; 404 for another user's chat | ✅ |
+| GET | `/conversations?limit=&before=` | ✔ | – | `{conversations[{conversation_id, title, message_count, created_at, updated_at}], next_before}` | ✅ |
+| POST | `/conversations` | ✔ | `{title?}` | the new chat (201) | ✅ |
+| GET | `/conversations/{id}` | ✔ | – | chat + `messages[{message_id, seq, role, content, standalone_query, needs_search, sources, graph, status}]` / 404 | ✅ |
+| PATCH | `/conversations/{id}` | ✔ | `{title}` | the chat / 404 | ✅ |
+| DELETE | `/conversations/{id}` | ✔ | – | 204 / 404 | ✅ |
+| POST | `/transcribe` | ✔ | multipart audio (≤25 MB, ≤5 min) | `{text, language, seconds}` | ✅ |
+| POST | `/ocr` | ✔ | multipart image (≤25 MB) | `{text, lines}` | ✅ |
 | POST | `/graph/cluster` | ✔ | – | `{status, communities_detected, communities_kept, communities_queued, communities_replaced}` | ✅ |
 | POST | `/graph/rebuild` | ✔ | – | `{status:"queued"}` (flags dirty, wakes worker) | ✅ |
 | GET | `/graph/status` | ✔ | – | counts incl. `pending_summaries`, `stale_communities`, `rebuild_queued`, `active_jobs` | ✅ |
@@ -184,9 +193,12 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 
 SSE event payloads:
 ```json
+{"type":"conversation","conversation_id":"uuid","title":"How many sensors…"}
+{"type":"rewrite","standalone":"When will the 12 sensors arrive?","needs_search":true,"rewritten":true}
 {"type":"sources","sources":[{"filename":"a.pdf","page":3,"text":"…","distance":0.21}]}
 {"type":"graph","data":{"nodes":[{"id":"uuid","name":"FastAPI","category":"TECHNOLOGY","description":"…","isPrimarySeed":true}],"links":[{"source":"uuid","target":"uuid","predicate":"USES","description":"…","weight":2.0}]}}
 {"type":"token","content":"…"}
+{"type":"saved","question_id":"uuid","answer_id":"uuid"}
 [DONE]
 ```
 
@@ -225,20 +237,30 @@ sequenceDiagram
   participant API as /query/stream
   participant DB as Postgres
   participant LLM as Ollama / Cloud
-  UI->>API: {query} + JWT + X-LLM-* headers
-  API->>API: embed_query (threadpool)
+  UI->>API: {query, conversation_id?} + JWT
+  opt follow-up in an existing chat
+    API->>DB: summary + recent turns
+    API->>LLM: rewrite → standalone question, needs_search
+  end
+  API->>API: embed the standalone question (threadpool)
   par Track A
     API->>DB: top-3 chunks, dist<0.35, user-scoped
   and Track B
     API->>DB: ≤2 seed entities → ≤20 edges → node metadata
   end
-  API-->>UI: SSE sources, graph
+  API->>DB: save the question (new chat if no id)
+  API-->>UI: SSE conversation, rewrite, sources, graph
   alt nothing found
-    API-->>UI: token "I cannot find…" + [DONE]
+    API-->>UI: token "I cannot find…"
   else
-    API->>LLM: system(context)+user(query), stream
+    API->>LLM: system(rules+summary+context) + history turns + user(query), stream
     LLM-->>API: tokens
-    API-->>UI: SSE token… [DONE]
+    API-->>UI: SSE token…
+  end
+  API->>DB: save the answer (complete / partial / error)
+  API-->>UI: SSE saved, [DONE]
+  opt turns left the history window
+    API->>LLM: update running summary (background)
   end
 ```
 

@@ -1,7 +1,7 @@
 {
   "name": "pkos-desktop",
   "productName": "PKOS",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "PKOS desktop app: runs the database, Ollama and the PKOS backend locally.",
   "author": "PKOS",
   "private": true,

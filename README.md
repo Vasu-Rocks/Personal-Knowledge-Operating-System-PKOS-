@@ -1,7 +1,8 @@
 # PKOS v2: Personal Knowledge OS
 
 Local-first Graph RAG: upload documents, ask questions, get cited answers, and explore the knowledge graph built from them.
-With default settings (Ollama) no document data leaves your machine.
+With default settings (Ollama) no document data leaves your machine. Chats are saved, and follow-up questions are
+understood in the context of the conversation (see [`docs/07_MEMORY_PLAN.md`](docs/07_MEMORY_PLAN.md)).
 
 Docs: see [`docs/README.md`](docs/README.md) (PRD, SRS, architecture, UI/UX, development plan).
 

@@ -55,7 +55,17 @@ async def _build_source():
             await c.execute("INSERT INTO chunk_entity_junction (chunk_id, entity_id) VALUES ($1, $2), ($3, $4)",
                             chunk_ids[0], e1, chunk_ids[1], e2)
             await c.execute("INSERT INTO relationship_mentions (rel_id, chunk_id) VALUES ($1, $2)", rel, chunk_ids[1])
-        return {"alice": alice, "bob": bob, "doc": doc, "chunk_ids": chunk_ids}
+            chat = uuid.uuid4()
+            await c.execute("""INSERT INTO conversations (conversation_id, user_id, title, summary, summary_upto_seq, message_count)
+                               VALUES ($1, $2, 'Melting glaciers', 'They discussed melt rates.', 0, 2)""", chat, alice)
+            await c.execute("""INSERT INTO messages (message_id, conversation_id, seq, role, content, standalone_query, needs_search)
+                               VALUES ($1, $2, 1, 'user', 'Why do they melt?', 'Why do the alpine glaciers melt?', true)""",
+                            uuid.uuid4(), chat)
+            await c.execute("""INSERT INTO messages (message_id, conversation_id, seq, role, content, sources, status)
+                               VALUES ($1, $2, 2, 'assistant', 'Warmer summers [Chunk 1].', $3::jsonb, 'complete')""",
+                            uuid.uuid4(), chat, '[{"chunk_id": %d, "filename": "notes.txt", "page": 1, '
+                            '"text": "glaciers melt in the alps", "via": "vector"}]' % chunk_ids[0])
+        return {"alice": alice, "bob": bob, "doc": doc, "chunk_ids": chunk_ids, "chat": chat}
     finally:
         await pool.close()
 
@@ -114,8 +124,19 @@ def test_import_copies_everything_with_new_chunk_ids_and_is_idempotent(make_user
     body = run_import(existing).json()
     assert sorted(body["imported_users"]) == ["old_alice", "old_bob"]
     assert body["rows"] == {**body["rows"], "users": 2, "documents": 1, "document_chunks": 2, "entities": 2,
-                            "relationships": 1, "chunk_entity_junction": 2, "relationship_mentions": 1}
+                            "relationships": 1, "chunk_entity_junction": 2, "relationship_mentions": 1,
+                            "conversations": 1, "messages": 2}
     assert "not imported" in body["note"]
+
+    # Saved chats come along with their history, searched question, sources snapshot and running summary.
+    (chat,) = target_rows("SELECT title, summary, message_count FROM conversations WHERE user_id = $1", source["alice"])
+    assert dict(chat) == {"title": "Melting glaciers", "summary": "They discussed melt rates.", "message_count": 2}
+    msgs = target_rows("SELECT seq, role, content, standalone_query, sources::text AS sources FROM messages "
+                       "WHERE conversation_id = $1 ORDER BY seq", source["chat"])
+    assert [(m["seq"], m["role"], m["content"]) for m in msgs] == [
+        (1, "user", "Why do they melt?"), (2, "assistant", "Warmer summers [Chunk 1].")]
+    assert msgs[0]["standalone_query"] == "Why do the alpine glaciers melt?"
+    assert '"text": "glaciers melt in the alps"' in msgs[1]["sources"]
 
     chunks = target_rows("SELECT chunk_id, text_content, embedding::text AS emb FROM document_chunks WHERE doc_id = $1 "
                          "ORDER BY text_content", source["doc"])
