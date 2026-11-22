@@ -50,5 +50,9 @@ build\installer\win-unpacked\PKOS.exe
 ## Not done yet
 - Code signing (installs show the SmartScreen "unknown publisher" warning; "More info" → "Run anyway").
 - Auto-update.
-- PyMuPDF is AGPL-3.0: distributing the installer to others requires AGPL-compatible terms for PKOS (or a
-  commercial PyMuPDF license, or replacing it with a permissively licensed PDF library).
+
+## Licensing
+PKOS is MIT-licensed (`LICENSE`). Everything bundled is permissive or a separate program shipped alongside it
+(see `THIRD_PARTY_NOTICES.txt`, which is installed into `resources\licenses`). PDFs are read with pypdfium2/PDFium
+(Apache-2.0/BSD); the AGPL PDF library PyMuPDF was removed in 0.3.0 and is excluded from the build. The NVIDIA CUDA
+runtime libraries inside the bundled Ollama have their own redistribution terms (NVIDIA CUDA Toolkit EULA).

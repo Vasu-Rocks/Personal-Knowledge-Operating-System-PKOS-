@@ -159,8 +159,8 @@ Start menu + desktop shortcuts and an uninstall entry; first launch reached the 
 DPAPI-sealed secrets, existing Ollama reused). Uninstalling while the app was running stopped all of PKOS's processes
 (and none of the system PostgreSQL service or the user's Ollama), removed the program, shortcuts and uninstall entry,
 and kept the data folder; the stale `postmaster.pid` left by the forced stop is handled on the next start. Still open:
-the interactive "delete my data" uninstall prompt, a clean-machine test (D6-1), app icon, signing. Licensing: PyMuPDF is
-AGPL-3.0, which matters before the installer is given to anyone else.
+the interactive "delete my data" uninstall prompt, a clean-machine test (D6-1), app icon, signing. Licensing: PyMuPDF was
+AGPL-3.0; replaced in 0.3.0 (see "PDF engine switch" under Phase 6).
 
 ### Phase 5: Data safety and maintenance
 
@@ -202,7 +202,29 @@ Verified on this PC: backend killed mid graph job → supervisor restarted it on
 `before-update` backup taken before migrations, migration 0002 applied; silent uninstall keeps the data.
 `.github/workflows/release.yml` builds the installer on a clean `windows-2025` runner (official PostgreSQL 16.13
 binaries, Ollama 0.32.14, pgvector compiled, DLL audit) and uploads it as an artifact; **not run yet** (needs a push).
-Still open: a test on a second PC, the interactive "delete my data" prompt, code signing, PyMuPDF licensing.
+Still open: a test on a second PC, the interactive "delete my data" prompt, code signing.
+
+**PDF engine switch (0.3.0, 2026-11-22).** PyMuPDF (AGPL-3.0) was replaced by pypdfium2 5.15.0 (Apache-2.0/BSD), so PKOS
+is now MIT-licensed (`LICENSE`). Evidence, on 13 test PDFs made with Chromium (embedded fonts, justified and hyphenated
+text, two columns, tables, ligatures, scripts, running heads) run through the real pipeline (extract → header strip →
+clean): 7 word-for-word identical to PyMuPDF (prose, two columns, ligatures, code, pages without text), table pages
+99.4–99.6% (the few extra tokens are table values the old code dropped as "page numbers"), multilingual 97.9%.
+Speed is not a factor: 200 pages / 700k characters take 0.57 s (PDFium) vs 0.44 s (PyMuPDF), against ~30 s to embed the
+same text. What was found and handled:
+- PDFium's `get_text_range()` returns one character per line on pages with individually positioned glyphs, so
+  `get_text_bounded()` is used; it still drops the spaces between words in Chromium-made **tables** (`MerdeGlace2.7315`;
+  only 10-20% of the words correct). Pages whose words average over 9 characters are rebuilt from PDFium's per-character
+  boxes (spaces and line breaks from geometry, PDFium's order kept); the gap threshold was swept (every value 0.06-0.12
+  gives identical words, 0.10 used) and the rebuild is kept only if it is clearly better. Table rows now come out as one
+  line each.
+- Known remaining differences: right-to-left text (Arabic) comes out in visual instead of logical order, a few Indic
+  clusters get extra spaces, and PDFium refuses some truncated PDFs that PyMuPDF repaired. Unreadable and
+  password-protected PDFs now fail with a clear message ("This PDF is password-protected...") instead of
+  "Indexing failed. Please retry.".
+- 13 new pytest tests with committed Chromium fixtures (`backend/tests/data`, regenerate with `make_pdf_fixtures.js`);
+  `pkos-api.exe --smoke-test` now reads a PDF, which proves the native PDFium library is bundled.
+- Not covered: PDFs from other generators (LaTeX, Word, scanners) were not available as test inputs; scanned PDFs have
+  no text layer and need OCR, which neither engine does.
 
 - D6-1 Clean-machine test in Windows Sandbox or a fresh VM: install, first run, register, both wizard paths, upload, query, graph, restart, uninstall.
 - D6-2 Edge cases: port already taken, existing Ollama on 11434, no internet during model download, disk full, app killed mid-indexing (worker resumes), PC sleep/resume.

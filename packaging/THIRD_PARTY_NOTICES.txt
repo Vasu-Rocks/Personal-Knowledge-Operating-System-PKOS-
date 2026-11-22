@@ -31,7 +31,9 @@ Python runtime and libraries bundled in pkos-api (PyInstaller)
   FastAPI, Starlette, Pydantic, Uvicorn, httpx: MIT / BSD-3-Clause
   asyncpg: Apache-2.0; NumPy, SciPy: BSD-3-Clause; networkx: BSD-3-Clause
   cryptography: Apache-2.0 or BSD-3-Clause; bcrypt: Apache-2.0; PyJWT: MIT
-  PyMuPDF: GNU AGPL-3.0 - https://github.com/pymupdf/PyMuPDF/blob/main/COPYING
+  pypdfium2: Apache-2.0 or BSD-3-Clause - https://github.com/pypdfium2-team/pypdfium2/blob/main/LICENSES
+  PDFium (the PDF engine inside pypdfium2): BSD-3-Clause / Apache-2.0, with third-party licences (FreeType, zlib,
+  libjpeg and others) listed at https://pdfium.googlesource.com/pdfium/+/main/LICENSE
   langchain-text-splitters: MIT
 
 Inter typeface (bundled in the user interface)

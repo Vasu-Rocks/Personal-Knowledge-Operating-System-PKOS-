@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends
 import asyncpg
 
+from rag.ingestion.extractors import PdfReadError
 from rag.ingestion.pipeline import process_file_stream
 from rag.vector.queue_batcher import batch_generator
 from rag.vector.embedder import embed_text_batch
@@ -59,16 +60,22 @@ async def _run_indexing(pool: asyncpg.Pool, doc_id: uuid.UUID, user_id: str,
             app_state.graph_worker.notify()
         logger.info("Indexing complete for doc %s: %d chunks", doc_id, total_chunks)
 
+    except PdfReadError as e:
+        # The message is written for the user ("password-protected", "damaged"), so it is shown as is.
+        logger.warning("Cannot read PDF for doc %s: %s", doc_id, e)
+        await _mark_failed(pool, doc_id, str(e))
     except Exception:
         logger.exception("Background indexing failed for doc %s", doc_id)
-        try:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE documents SET index_status = 'FAILED', index_error = 'Indexing failed. Please retry.' WHERE doc_id = $1",
-                    doc_id
-                )
-        except Exception:
-            pass
+        await _mark_failed(pool, doc_id, "Indexing failed. Please retry.")
+
+
+async def _mark_failed(pool: asyncpg.Pool, doc_id: uuid.UUID, message: str):
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE documents SET index_status = 'FAILED', index_error = $2 WHERE doc_id = $1", doc_id, message)
+    except Exception:
+        logger.exception("Could not record the failure of doc %s", doc_id)
 
 
 @router.get("/documents")

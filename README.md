@@ -5,6 +5,8 @@ With default settings (Ollama) no document data leaves your machine.
 
 Docs: see [`docs/README.md`](docs/README.md) (PRD, SRS, architecture, UI/UX, development plan).
 
+License: [MIT](LICENSE). Third-party components and their licences: [`packaging/THIRD_PARTY_NOTICES.txt`](packaging/THIRD_PARTY_NOTICES.txt).
+
 ## Prerequisites
 - Python 3.11+ and Node 20+
 - PostgreSQL with the pgvector extension (>= 0.5), listening on `localhost:5433`, database `pkos_v2` created

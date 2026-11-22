@@ -40,7 +40,7 @@ Design principles: **local-first**, **one database for everything** (relational 
 | Database | PostgreSQL + pgvector | needs HNSW (pgvector ≥ 0.5) | Default `localhost:5433`, db `pkos_v2` |
 | Embeddings | sentence-transformers, `BAAI/bge-small-en-v1.5` | — | 384-d, CPU, singleton |
 | Chunking | langchain-text-splitters | — | RecursiveCharacterTextSplitter |
-| PDF | PyMuPDF (`fitz`) | — | |
+| PDF | pypdfium2 (PDFium) | ✅ pinned | Apache-2.0/BSD, so PKOS can be MIT. Text rebuilt from character positions on pages where PDFium drops spaces (tables); see `rag/ingestion/extractors.py` |
 | Auth | PyJWT (HS256), bcrypt | — | |
 | Graph algos | networkx (Louvain) | ✅ in requirements.txt (unpinned) | |
 | HTTP clients | httpx (async), requests (sync) | **httpx missing from requirements.txt** | |
