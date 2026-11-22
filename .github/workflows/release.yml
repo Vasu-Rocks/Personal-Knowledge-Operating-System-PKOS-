@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22  # `node --test "test/**/*.test.js"` needs glob support (Node 21+); 20 fails to find the tests
 
       - name: Python environment (CPU-only torch)
         run: |
@@ -37,14 +37,14 @@ jobs:
           venv\Scripts\python -m pip install "torch==$env:TORCH_VERSION" --index-url https://download.pytorch.org/whl/cpu
           venv\Scripts\python -m pip install -r backend\requirements.txt pyinstaller
 
-      - name: Download runtimes (PostgreSQL binaries, Ollama, embedding model)
+      - name: Download runtimes (PostgreSQL binaries, Ollama, embedding and speech models)
         run: |
           $rt = Join-Path $env:RUNNER_TEMP "runtimes"; New-Item -ItemType Directory -Force $rt | Out-Null
           Invoke-WebRequest "https://get.enterprisedb.com/postgresql/postgresql-$env:PG_VERSION-windows-x64-binaries.zip" -OutFile "$rt\pg.zip"
           Expand-Archive "$rt\pg.zip" "$rt\pg"
           Invoke-WebRequest "https://github.com/ollama/ollama/releases/download/v$env:OLLAMA_VERSION/ollama-windows-amd64.zip" -OutFile "$rt\ollama.zip"
           Expand-Archive "$rt\ollama.zip" "$rt\ollama"
-          venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-small-en-v1.5')"
+          venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-small-en-v1.5'); snapshot_download('Systran/faster-whisper-base')"
 
       - name: Node dependencies
         run: |
