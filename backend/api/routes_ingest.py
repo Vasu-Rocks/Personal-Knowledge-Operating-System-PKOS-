@@ -3,7 +3,8 @@ import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends
 import asyncpg
 
-from rag.ingestion.extractors import PdfReadError
+from rag.ingestion.extractors import UnreadableFile
+from rag.ingestion.media import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 from rag.ingestion.pipeline import process_file_stream
 from rag.vector.queue_batcher import batch_generator
 from rag.vector.embedder import embed_text_batch
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
-ALLOWED_EXTENSIONS = {"pdf", "txt", "py", "js", "md"}
+ALLOWED_EXTENSIONS = {"pdf", "txt", "py", "js", "md"} | AUDIO_EXTENSIONS | IMAGE_EXTENSIONS
 
 
 async def _run_indexing(pool: asyncpg.Pool, doc_id: uuid.UUID, user_id: str,
@@ -36,7 +37,9 @@ async def _run_indexing(pool: asyncpg.Pool, doc_id: uuid.UUID, user_id: str,
         )
         batched_loops = batch_generator(page_generator_stream, batch_size=32)
         total_chunks = 0
-        for batch in batched_loops:
+        # Extraction runs inside the generator (speech recognition can take minutes), so each step goes to a worker
+        # thread; iterating here directly would freeze the whole server.
+        while (batch := await run_in_threadpool(next, batched_loops, None)) is not None:
             texts = [chunk["text"] for chunk in batch]
             embedded_vectors = await run_in_threadpool(embed_text_batch, texts)
             await ingest_vector_batch_async(pool, doc_id, batch, embedded_vectors)
@@ -60,9 +63,9 @@ async def _run_indexing(pool: asyncpg.Pool, doc_id: uuid.UUID, user_id: str,
             app_state.graph_worker.notify()
         logger.info("Indexing complete for doc %s: %d chunks", doc_id, total_chunks)
 
-    except PdfReadError as e:
+    except UnreadableFile as e:
         # The message is written for the user ("password-protected", "damaged"), so it is shown as is.
-        logger.warning("Cannot read PDF for doc %s: %s", doc_id, e)
+        logger.warning("Cannot read doc %s: %s", doc_id, e)
         await _mark_failed(pool, doc_id, str(e))
     except Exception:
         logger.exception("Background indexing failed for doc %s", doc_id)

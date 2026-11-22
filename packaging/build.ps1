@@ -160,6 +160,17 @@ Step "models" {
   Remove-Item (Join-Path $out "README.md") -ErrorAction SilentlyContinue
   if (-not (Test-Path (Join-Path $out "model.safetensors"))) { throw "model.safetensors missing" }
   Write-Host "   model: $(Get-SizeMB $out)"
+
+  # Whisper "base" (faster-whisper / CTranslate2 format) for voice notes. Run the speech tests once to fill the cache.
+  $snapshots = Join-Path $HfCache "models--Systran--faster-whisper-base\snapshots"
+  $snap = Get-ChildItem $snapshots -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+  if (-not $snap) { throw "Systran/faster-whisper-base not in $HfCache (run backend\tests\test_media.py once)" }
+  $out = Join-Path $Stage "models\faster-whisper-base"
+  if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+  Copy-Item $snap.FullName $out -Recurse
+  Remove-Item (Join-Path $out "README.md") -ErrorAction SilentlyContinue
+  if (-not (Test-Path (Join-Path $out "model.bin"))) { throw "faster-whisper model.bin missing" }
+  Write-Host "   speech model: $(Get-SizeMB $out)"
 }
 
 # ------------------------------------------------------------------------------------------------- 6. licenses

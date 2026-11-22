@@ -7,9 +7,10 @@ import { migrateLegacySettings } from '../lib/llmApi';
 import useAiStatus from './ai/useAiStatus';
 import StatusBadge from './ai/StatusBadge';
 import SetupWizard from './ai/SetupWizard';
+import MediaInput from './MediaInput';
 
 const SETUP_SKIPPED = 'pkos_ai_setup_skipped'; // sessionStorage: skipping lasts until the app restarts
-import { Send, Terminal, KeySquare, ChevronRight, Activity, Bot, User, Sparkles } from 'lucide-react';
+import { Send, Terminal, KeySquare, Activity, Bot, User, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -350,15 +351,16 @@ export default function Dashboard() {
 
         {/* Input Dock */}
         <div style={{ padding: '24px', background: 'linear-gradient(to top, var(--bg-core) 60%, transparent)' }}>
-          <form 
+          <form
             onSubmit={handleSend}
             style={{
-              display: 'flex', background: 'rgba(255,255,255,0.03)', border: 'var(--pane-border)',
+              position: 'relative', display: 'flex', background: 'rgba(255,255,255,0.03)', border: 'var(--pane-border)',
               borderRadius: 'var(--radius-lg)', padding: '8px 16px', alignItems: 'center',
               boxShadow: '0 4px 24px rgba(0,0,0,0.2)'
             }}
           >
-            <ChevronRight size={20} color="var(--text-muted)" />
+            <MediaInput authFetch={authFetch} disabled={isTyping}
+              onText={(text) => setInputVal((v) => (v.trim() ? `${v.trim()} ${text}` : text))} />
             <input 
               type="text" 
               value={inputVal}
@@ -367,7 +369,7 @@ export default function Dashboard() {
               autoFocus
               style={{ flex: 1, padding: '12px 16px', fontSize: '15px' }}
             />
-            <button 
+            <button
               type="submit" disabled={isTyping || !inputVal.trim()}
               style={{ 
                 background: inputVal.trim() && !isTyping ? 'var(--accent-blue)' : 'rgba(255,255,255,0.1)',

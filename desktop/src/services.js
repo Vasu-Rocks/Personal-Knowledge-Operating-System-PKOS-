@@ -244,6 +244,9 @@ class BackendService {
       env.PKOS_EMBED_CACHE_DIR = process.env.PKOS_EMBED_CACHE_DIR
         || path.join(process.env.HF_HOME || path.join(require('os').homedir(), '.cache', 'huggingface'), 'hub');
     }
+    if (this.paths.whisperModelDir && fs.existsSync(path.join(this.paths.whisperModelDir, 'model.bin'))) {
+      env.PKOS_WHISPER_MODEL = this.paths.whisperModelDir; // voice notes work offline
+    }
     const { command, args, cwd } = this.paths.backend;
     this.proc = new ManagedProcess({ name: 'backend', command, args, cwd, env, log: this.log });
     this.proc.start();

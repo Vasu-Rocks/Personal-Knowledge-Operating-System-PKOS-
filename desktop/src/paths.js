@@ -35,6 +35,8 @@ function resolvePaths({ packaged, resourcesPath, repoRoot = path.resolve(__dirna
     webDir: env.PKOS_WEB_DIR || (packaged ? res('web') : repo('frontend', 'dist')),
     // Bundled embedding model (packaged only); dev uses the normal Hugging Face cache.
     embedModelDir: env.PKOS_EMBED_MODEL_DIR || (packaged ? res('models', 'bge-small-en-v1.5') : null),
+    // Bundled Whisper model for voice notes (packaged only); dev downloads it once into the Hugging Face cache.
+    whisperModelDir: env.PKOS_WHISPER_MODEL_DIR || (packaged ? res('models', 'faster-whisper-base') : null),
     // Dev only: load the Vite dev server (hot reload) instead of the built files.
     devUrl: packaged ? null : (env.PKOS_DEV_URL || null),
   };

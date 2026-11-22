@@ -5,6 +5,7 @@ import { UploadCloud, FileText, Database, LogOut, CheckCircle2, Loader2, Trash2,
 import SettingsView from './SettingsView';
 import ConnectionsView from './ConnectionsView';
 import KnowledgeMapView from './KnowledgeMapView';
+import { UPLOAD_EXTS, UPLOAD_ACCEPT, UPLOAD_LABEL } from '../lib/fileTypes';
 
 export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
   const { authFetch, logout, user } = useAuth();
@@ -92,8 +93,8 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
     if (!file) return;
     // Client-side pre-validation
     const ext = file.name.split('.').pop().toLowerCase();
-    if (!['pdf','txt','md','py','js'].includes(ext)) {
-      setUploadError(`Unsupported file type ".${ext}". Allowed: PDF, TXT, MD, PY, JS`);
+    if (!UPLOAD_EXTS.includes(ext)) {
+      setUploadError(`Unsupported file type ".${ext}". Allowed: ${UPLOAD_LABEL}.`);
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
@@ -190,7 +191,7 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
               handleFileUpload(e.target.files[0]);
               e.target.value = null; // Fix Issue 6: Allow re-uploading same file instantly
             }}
-            accept=".pdf,.txt,.md,.py,.js"
+            accept={UPLOAD_ACCEPT}
           />
           {isUploading ? (
              <Loader2 size={28} color="var(--accent-blue)" className="loader" />
@@ -198,7 +199,8 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged }) {
              <UploadCloud size={28} color={isHovering ? 'var(--accent-blue)' : 'var(--text-muted)'} />
           )}
           <span style={{ fontSize: '13px', color: isHovering ? 'var(--text-primary)' : 'var(--text-secondary)', textAlign: 'center' }}>
-            {isUploading ? 'Hashing Vectors...' : 'Drop PDF here or click to browse'}
+            {isUploading ? 'Hashing Vectors...' : 'Drop a file here or click to browse'}
+            {!isUploading && <><br /><span style={{ fontSize: '11px', opacity: 0.7 }}>{UPLOAD_LABEL}</span></>}
           </span>
         </div>
         {uploadError && (

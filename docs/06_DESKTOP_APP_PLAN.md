@@ -262,3 +262,24 @@ Phases 1 and 2 can run in parallel after the spikes. Docker and the web build ke
 - Q2 GPU: include NVIDIA libraries, drop AMD.
 - Q3 Signing: unsigned for now.
 - Q4 Import: yes, add a one-time import tool (D5-3).
+
+## 8. Audio and image notes (0.4.0, 2026-11-23)
+
+Requested after 0.3.0: notes can be a photo or a recording, both as documents and as the question.
+
+- **Engines, all local.** Speech: faster-whisper 1.2.1 (CTranslate2, int8, CPU) running Whisper `base` (about 145 MB, bundled in
+  the installer as `models/faster-whisper-base`, so voice notes work offline). Images: RapidOCR 1.2.3 on onnxruntime (PP-OCR
+  models are inside the package). Both load on first use, so start-up time is unchanged. `av` is pinned to 16.1.0 because
+  faster-whisper 1.2.1 calls `av.open(metadata_errors=...)`, which PyAV 19 removed.
+- **As documents.** `/upload` also accepts mp3, wav, m4a, ogg, oga, opus, flac, webm, aac, mp4 and png, jpg, jpeg, webp, bmp,
+  tif, tiff. A transcript becomes one page per minute, each starting with its `[mm:ss]` time; an image becomes one page. Short
+  notes are kept (minimum 8 characters instead of 50). Indexing now runs each extraction step in a worker thread: before, a
+  long transcription inside the async task would have frozen the whole server.
+- **As the question.** `POST /transcribe` (recording up to 5 minutes) and `POST /ocr` return text without storing anything; the
+  query box has a microphone and a photo button that put the text in the box so it can be corrected before sending.
+- **Measured** (this PC, CPU): a 10 s recording transcribes in 1.4 s after a 9 s model load; OCR of a photo takes 2 s. Test photo:
+  all 4 handwriting-style lines read, one proper name misread ("Aletsch" heard as "alleged" by speech, "Afetsch" by OCR).
+- **Known limits.** Whisper `base` is weaker on accents, noise and rare names than `small`; PP-OCR reads printed and neat
+  handwritten text but not cursive; scanned PDFs still have no OCR (the engine is there now, wiring PDF pages to it is the next step);
+  the microphone needs Windows' microphone permission.
+

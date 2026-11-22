@@ -1,7 +1,7 @@
 import re
 import unicodedata
 
-def clean_text(text: str, file_extension: str) -> str:
+def clean_text(text: str, file_extension: str, min_chars: int = 50) -> str:
     """
     Cleans extracted text based on its source file type.
     """
@@ -35,7 +35,7 @@ def clean_text(text: str, file_extension: str) -> str:
     
     # 3. Ghost Chunk Prevention
     # If after all cleaning, the text is less than 50 characters, it's useless noise.
-    if len(final_text) < 50:
+    if len(final_text) < min_chars:
         return "" # Return empty string so the pipeline ignores it
         
     return final_text

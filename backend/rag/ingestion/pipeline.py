@@ -1,4 +1,5 @@
-from .extractors import extract_pdf_stream, extract_text_stream
+from .extractors import extract_pdf_stream, extract_text_stream, extract_image_stream, extract_audio_stream
+from .media import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 from .cleaner import clean_text
 from .chunker import split_text_into_chunks
 
@@ -10,10 +11,15 @@ def process_file_stream(file_stream, filename: str, doc_id: str) -> list[dict]:
     # 1. Routing Validator
     extension = filename.split(".")[-1].lower()
     
+    min_chars = 50
     if extension == "pdf":
         page_generator = extract_pdf_stream(file_stream)
     elif extension in ["txt", "md", "py", "js"]:
         page_generator = extract_text_stream(file_stream)
+    elif extension in IMAGE_EXTENSIONS:
+        page_generator, min_chars, extension = extract_image_stream(file_stream), 8, "txt"  # short notes are real notes
+    elif extension in AUDIO_EXTENSIONS:
+        page_generator, min_chars, extension = extract_audio_stream(file_stream), 8, "txt"
     else:
         raise ValueError(f"Unsupported extension: {extension}")
 
@@ -23,7 +29,7 @@ def process_file_stream(file_stream, filename: str, doc_id: str) -> list[dict]:
     
     for page_num, raw_content in page_generator:
         # Pass to 1.3
-        cleaned = clean_text(raw_content, f".{extension}")
+        cleaned = clean_text(raw_content, f".{extension}", min_chars)
         if not cleaned:
             continue
             

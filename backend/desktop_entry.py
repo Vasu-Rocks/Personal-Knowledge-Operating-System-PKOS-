@@ -63,7 +63,25 @@ def smoke_test():
     pages = list(extract_pdf_stream(io.BytesIO(_tiny_pdf())))
     if not pages or "PKOS smoke test" not in pages[0][1]:
         raise SystemExit(f"PDF extraction does not work in this build: {pages!r}")
-    print(f"smoke test ok: {len(migrations)} migrations, PDF extraction, sentence-transformers {sentence_transformers.__version__}")
+    # Image notes: renders a line of text and reads it back (proves onnxruntime, OpenCV and the OCR models are bundled).
+    from PIL import Image, ImageDraw, ImageFont
+
+    from rag.ingestion.media import ocr_image
+    picture = Image.new("RGB", (700, 140), "white")
+    ImageDraw.Draw(picture).text((20, 30), "PKOS smoke test", fill="black", font=ImageFont.load_default(size=56))
+    buffer = io.BytesIO()
+    picture.save(buffer, "PNG")
+    read_back = ocr_image(buffer.getvalue())
+    if "smoke" not in read_back.lower():
+        raise SystemExit(f"image text recognition does not work in this build: {read_back!r}")
+    # Voice notes: the model is staged separately, so check the engine and its bundled voice-activity model load.
+    import av  # noqa: F401
+    import ctranslate2
+    from faster_whisper.utils import get_assets_path
+    if not os.path.exists(os.path.join(get_assets_path(), "silero_vad_v6.onnx")):
+        raise SystemExit("faster-whisper voice-activity model missing from this build")
+    print(f"smoke test ok: {len(migrations)} migrations, PDF extraction, image OCR, speech engine "
+          f"(ctranslate2 {ctranslate2.__version__}), sentence-transformers {sentence_transformers.__version__}")
 
 
 if __name__ == "__main__":

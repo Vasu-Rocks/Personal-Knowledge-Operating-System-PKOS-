@@ -17,7 +17,11 @@ from .headers import detect_repeating_edges, strip_edges
 logger = logging.getLogger(__name__)
 
 
-class PdfReadError(ValueError):
+class UnreadableFile(ValueError):
+    """The file cannot be read at all; the message is safe to show to the user."""
+
+
+class PdfReadError(UnreadableFile):
     """The PDF cannot be read at all; the message is safe to show to the user."""
 
 
@@ -136,6 +140,21 @@ def extract_pdf_stream(file_stream):
                 yield (page_num, text)
     finally:
         pdf.close()
+
+
+def extract_image_stream(file_stream):
+    """Photo or scan of notes -> one 'page' of recognised text (OCR, on this machine)."""
+    from .media import ocr_image
+    text = ocr_image(file_stream.read())
+    if text.strip():
+        yield (1, text)
+
+
+def extract_audio_stream(file_stream):
+    """Voice note or recording -> one 'page' per minute of transcript, each starting with its [mm:ss] time."""
+    from .media import transcribe, transcript_pages
+    segments, _language, _duration = transcribe(file_stream.read())
+    yield from transcript_pages(segments)
 
 
 def extract_text_stream(file_stream):

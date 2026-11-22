@@ -34,6 +34,11 @@ Python runtime and libraries bundled in pkos-api (PyInstaller)
   pypdfium2: Apache-2.0 or BSD-3-Clause - https://github.com/pypdfium2-team/pypdfium2/blob/main/LICENSES
   PDFium (the PDF engine inside pypdfium2): BSD-3-Clause / Apache-2.0, with third-party licences (FreeType, zlib,
   libjpeg and others) listed at https://pdfium.googlesource.com/pdfium/+/main/LICENSE
+  faster-whisper, CTranslate2: MIT - https://github.com/SYSTRAN/faster-whisper
+  Whisper "base" model (OpenAI, converted by Systran): MIT - https://huggingface.co/Systran/faster-whisper-base
+  Silero VAD (voice-activity model inside faster-whisper): MIT - https://github.com/snakers4/silero-vad
+  PyAV: BSD-3-Clause; it ships FFmpeg libraries built under the LGPL-2.1+ - https://ffmpeg.org/legal.html
+  RapidOCR, onnxruntime, PP-OCR models (PaddlePaddle): Apache-2.0 / MIT - https://github.com/RapidAI/RapidOCR
   langchain-text-splitters: MIT
 
 Inter typeface (bundled in the user interface)
