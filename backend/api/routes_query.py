@@ -10,9 +10,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user, get_db
+from core import config
 from core.llm import LLMSettings
 from database import conversations_db
 from database.llm_settings_db import load_llm_settings
+from rag.memory.stm import build_history
 from rag.query.generator import generate_rag_response_stream
 from rag.query.prompt_builder import build_rag_prompt
 from rag.query.retrieval import retrieve_context
@@ -66,9 +68,18 @@ async def process_query_stream(
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
     active_user_id = current_user["user_id"]
-    if payload.conversation_id and not await conversations_db.get_owned_conversation(
-            pool, active_user_id, payload.conversation_id):
-        raise HTTPException(status_code=404, detail="Chat not found.")
+    history, summary = [], None
+    if payload.conversation_id:
+        existing = await conversations_db.get_owned_conversation(pool, active_user_id, payload.conversation_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Chat not found.")
+        if config.MEMORY_ENABLED:
+            # Short-term memory: the recent turns not yet folded into the running summary (docs/07_MEMORY_PLAN.md).
+            summary = existing["summary"]
+            recent = await conversations_db.get_messages(
+                pool, active_user_id, payload.conversation_id, after_seq=existing["summary_upto_seq"],
+                last=2 * config.HISTORY_MAX_TURNS + 1)
+            history = build_history(recent)
 
     # Saved per-user settings (Settings page) win. The X-LLM-* headers are the legacy path for clients that
     # still keep provider and keys in the browser; they are used only until the user saves settings.
@@ -91,7 +102,8 @@ async def process_query_stream(
         # so any exceptions return a proper 500 status before response headers are sent
         retrieved_context, raw_chunks = format_context_blocks(raw_chunks)
         has_context = bool(raw_chunks or graph_data.get("nodes"))
-        rag_prompt = build_rag_prompt(user_query=user_query, retrieved_context=retrieved_context, graph_data=graph_data) if has_context else ""
+        rag_prompt = build_rag_prompt(user_query=user_query, retrieved_context=retrieved_context, graph_data=graph_data,
+                                      history=history, summary=summary) if has_context else ""
 
         # Stored only once the question can be answered, so a failure above leaves no half-written chat behind.
         conversation_id = payload.conversation_id

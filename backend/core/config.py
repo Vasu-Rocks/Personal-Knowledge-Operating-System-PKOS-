@@ -47,6 +47,13 @@ GRAPH_CHUNK_MAX_DISTANCE = float(os.getenv("GRAPH_CHUNK_MAX_DISTANCE", "0.45"))
 CONTEXT_MAX_CHARS = int(os.getenv("CONTEXT_MAX_CHARS", "6000"))
 GRAPH_CONTEXT_MAX_CHARS = int(os.getenv("GRAPH_CONTEXT_MAX_CHARS", "1800"))
 
+# Conversation memory (docs/07_MEMORY_PLAN.md). Budget with num_ctx 4096: rules ~1200 + documents 6000 + graph 1800
+# + history 2400 + summary 1200 characters ~ 3150 tokens, leaving room for a 512-token answer.
+MEMORY_ENABLED = _env_bool("MEMORY_ENABLED", True)
+HISTORY_MAX_TURNS = int(os.getenv("HISTORY_MAX_TURNS", "6"))
+HISTORY_MAX_CHARS = int(os.getenv("HISTORY_MAX_CHARS", "2400"))
+SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "1200"))
+
 # Global search (G5): broad questions are answered from community summaries.
 GRAPH_GLOBAL_SEARCH = _env_bool("GRAPH_GLOBAL_SEARCH", True)
 GRAPH_COMMUNITIES = int(os.getenv("GRAPH_COMMUNITIES", "3"))

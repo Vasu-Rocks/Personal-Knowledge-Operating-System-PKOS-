@@ -2,11 +2,14 @@ import re
 from core.config import GRAPH_CONTEXT_MAX_CHARS
 from rag.query.retriever import COMMUNITY_MARKER
 
-def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict = None) -> list[dict[str, str]]:
+def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict = None,
+                     history: list[dict[str, str]] | None = None, summary: str | None = None) -> list[dict[str, str]]:
     """
     Sub-Module 3.3: Prompt Engineering
     Constructs a strictly bounded instruction set for the quantized LLM.
     Applies negative constraints and structural ChatML/Llama-3 templating logic.
+    history: earlier turns of this chat as user/assistant messages (rag/memory/stm.py); summary: a summary of turns
+    before those. Both only help the model understand the question; without them the prompt is unchanged.
     """
     if graph_data is None:
         graph_data = {}
@@ -70,6 +73,18 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
             "theme questions, combine them (and any other blocks) into a short structured answer and cite each one.\n"
         )
 
+    # Conversation memory: earlier turns are for understanding the question, never a source of facts.
+    memory_rule, summary_block = "", ""
+    if history or summary:
+        memory_rule = (
+            f"{6 if overview_rule else 5}. The earlier messages of this conversation are there only so you understand "
+            "what the user means (for example what \"it\" or \"the second one\" refers to). Facts in your answer must "
+            "still come from the CONTEXT, with citations.\n"
+        )
+    if summary:
+        summary = re.sub(r'={3,}', '', summary).strip()
+        summary_block = f"\nEARLIER IN THIS CONVERSATION (summary):\n{summary}\n"
+
     # 2. Complete Structurally Bounded Generator Template
     system_content = f"""You are the strict, analytical AI assistant for the PKOS (Personal Knowledge Operating System).
 Your core directive is to answer the user's question ONLY using the provided CONTEXT.
@@ -79,7 +94,7 @@ CRITICAL INSTRUCTIONS:
 2. Do NOT use outside knowledge. Do NOT make up information.
 3. You MUST cite your claims using the identifiers provided, for example: [Chunk 1] or [Graph Entity: FastAPI].
 4. Format your answer thoughtfully using Markdown, placing citations in italics.
-{overview_rule}
+{overview_rule}{memory_rule}{summary_block}
 ========== START CONTEXT ==========
 {retrieved_context}
 {graph_context}
@@ -87,5 +102,6 @@ CRITICAL INSTRUCTIONS:
 
     return [
         {"role": "system", "content": system_content.strip()},
+        *(history or []),
         {"role": "user", "content": user_query}
     ]
