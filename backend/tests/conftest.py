@@ -29,6 +29,34 @@ def fake_vector(text: str) -> np.ndarray:
     return v / n if n else v
 
 
+def sse_events(text: str) -> list:
+    """The events of a /query/stream response: parsed JSON objects, and the final '[DONE]' as a string."""
+    out = []
+    for block in text.split("\n\n"):
+        if block.startswith("data: "):
+            data = block[len("data: "):]
+            out.append(data if data == "[DONE]" else json.loads(data))
+    return out
+
+
+def run_db(fn):
+    """Runs `fn(pool)` on a private pool (the app's pool belongs to the TestClient's event loop)."""
+    from database.postgres_core import init_db_pool
+
+    async def go():
+        pool = await init_db_pool()
+        try:
+            return await fn(pool)
+        finally:
+            await pool.close()
+
+    return asyncio.run(go())
+
+
+def event(events: list, kind: str) -> dict:
+    return next(e for e in events if isinstance(e, dict) and e.get("type") == kind)
+
+
 def _db_reachable() -> bool:
     import asyncpg
 

@@ -6,22 +6,9 @@ import pytest
 
 from database import conversations_db as db
 from database.conversations_db import title_from_question
+from conftest import run_db
 
 API = "/api/v1/conversations"
-
-
-def run_db(fn):
-    """Runs `fn(pool)` on a private pool (the app's pool belongs to the TestClient's event loop)."""
-    from database.postgres_core import init_db_pool
-
-    async def go():
-        pool = await init_db_pool()
-        try:
-            return await fn(pool)
-        finally:
-            await pool.close()
-
-    return asyncio.run(go())
 
 
 def user_id(u):

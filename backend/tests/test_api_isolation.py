@@ -1,6 +1,8 @@
 """SRS AC-10: one user must never see, query, change or delete another user's data."""
 import json
 
+from conftest import event, sse_events
+
 API = "/api/v1"
 
 SECRET_TEXT = ("The launch codes for the project are stored in the blue vault under the eastern stairwell. " * 3).encode()
@@ -29,9 +31,11 @@ def test_retrieval_never_returns_another_users_chunks(client, make_user):
     assert "alice_private.txt" in own.text  # sanity: the data is retrievable by its owner
 
     other = client.post(f"{API}/query/stream", json={"query": question}, headers=b.headers)
-    first_event = json.loads(other.text.split("\n\n")[0][len("data: "):])
-    assert first_event["sources"] == []
-    assert "alice_private.txt" not in other.text and "blue vault" not in other.text
+    events = sse_events(other.text)
+    assert event(events, "sources")["sources"] == []
+    # Bob's own question comes back as his chat's title; nothing else may carry Alice's data.
+    shown = json.dumps([e for e in events if not (isinstance(e, dict) and e.get("type") == "conversation")])
+    assert "alice_private.txt" not in shown and "blue vault" not in shown
 
 
 def test_graph_job_controls_are_owner_only(client, make_user):

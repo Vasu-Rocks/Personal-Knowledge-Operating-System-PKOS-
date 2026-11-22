@@ -1,5 +1,7 @@
 import uuid
 
+from conftest import event, sse_events
+
 
 API = "/api/v1"
 
@@ -58,12 +60,11 @@ def test_stream_query_returns_sources_and_tokens(client, make_user):
     question = TEXT.decode().strip()  # identical text -> embedding distance 0 with the fake embedder
     r = client.post(f"{API}/query/stream", json={"query": question}, headers=u.headers)
     assert r.status_code == 200
-    events = [e[len("data: "):] for e in r.text.split("\n\n") if e.startswith("data: ")]
+    events = sse_events(r.text)
     assert events[-1] == "[DONE]"
-    import json
-    sources = json.loads(events[0])
-    assert sources["type"] == "sources" and sources["sources"][0]["filename"] == "bio.txt"
-    assert any(json.loads(e).get("content") == "fake answer" for e in events[1:-1] if e.startswith("{"))
+    assert [e["type"] for e in events[:3]] == ["conversation", "sources", "graph"]
+    assert event(events, "sources")["sources"][0]["filename"] == "bio.txt"
+    assert event(events, "token")["content"] == "fake answer"
 
 
 def test_stream_query_without_documents_refuses_without_llm(client, make_user):
