@@ -1,0 +1,132 @@
+# 08 - Phone access: use PKOS from a phone through the laptop
+
+Status: planned 2026-11-23 (decisions in section 9). Built step by step, P1 to P5, one step per turn.
+
+## 1. Goal
+
+While PKOS runs on a laptop, a phone on the same network (the laptop's Mobile Hotspot, the phone's hotspot, or the
+same Wi-Fi) opens PKOS in its browser - nothing to install - logs in and uses it: questions, chats, memories,
+documents, photos and voice notes. **Everything stays on the laptop**: the documents, the database, the AI model and
+every answer. The phone only shows the screens.
+
+Rules that hold in every step:
+1. **Off by default.** Nothing is reachable from the network until the user switches "Phone access" on in the laptop
+   app; switching it off (or quitting PKOS) closes the door at once.
+2. **Only paired phones get in** (decision P-Q1). A phone pairs once by scanning a QR code (or typing a 6-digit code)
+   shown on the laptop; then it logs in as usual. A device that is not paired never even sees the login page. Paired
+   phones are listed on the laptop and can be removed.
+3. **The backend never listens on the network.** It stays on 127.0.0.1 exactly as today. The only door is a small
+   phone server in the desktop app that checks the pairing and forwards allowed requests.
+4. **Encrypted on the network** (decision P-Q2): the phone server uses https with a certificate PKOS makes itself, so
+   nobody on the same Wi-Fi can read questions, answers or passwords, and the phone's microphone works.
+5. **Laptop-only settings stay laptop-only** (decision P-Q4): the AI model and API keys, downloading or deleting
+   models, backups, import and the data folder cannot be changed from a phone.
+
+About Bluetooth: a phone browser cannot open a website over plain Bluetooth. Bluetooth *tethering* (PAN) creates a
+small network between the two, and phone access works over it like over Wi-Fi, only slower. The recommended way is the
+laptop's Mobile Hotspot (Windows Settings > Network > Mobile hotspot): no router needed, and the laptop's address on it
+(usually 192.168.137.1) stays the same.
+
+## 2. Current state
+
+- Electron starts Postgres, Ollama and the backend, all on 127.0.0.1 with ports chosen at first start
+  (`desktop/src/services.js`); the window loads the built web UI through the `app://` protocol (`desktop/src/main.js`).
+- The web UI talks to `window.pkos.apiBase` (desktop) or `VITE_API_BASE_URL` (web) (`frontend/src/api.js`).
+- Login: `POST /login` (no limit on failed attempts), `POST /register` open, JWT in `localStorage`.
+- The screens are a three-pane desktop layout (documents | chat | X-Ray) with drag handles; nothing adapts to a
+  phone-sized screen.
+- Voice notes use `getUserMedia` + `MediaRecorder` (needs https off-localhost); photos use a file input.
+
+## 3. How it works
+
+```
+ phone browser ──https──▶ phone server (Electron main, 0.0.0.0:47100)
+                            │ 1. paired device?  no → pairing page only
+                            │ 2. path allowed?   no → 403 "only on the laptop"
+                            │ 3. static web UI, or forward /api/v1/* (streams SSE)
+                            ▼
+                          backend 127.0.0.1:<port>  (unchanged) ──▶ Postgres, Ollama (127.0.0.1)
+```
+
+- **Phone server** (`desktop/src/phone.js`): Node `https` server on all network interfaces, fixed port 47100 (so a
+  bookmark keeps working), serving `frontend/dist` and forwarding `/api/v1/*` to the backend without buffering (answers
+  stream token by token). Started and stopped by the switch; the choice is remembered.
+- **Certificate**: made once by the bundled backend (`pkos-api --make-cert`, with the `cryptography` package it
+  already ships; no new download) - a key and a self-signed certificate for the laptop's current network addresses,
+  kept in the data folder; renewed when the addresses change. The phone shows a one-time "not private / not trusted"
+  warning per address, which the user accepts. Optional: install the PKOS certificate on the phone once to never see
+  the warning (documented, not required).
+- **Pairing**: the laptop shows the address, a QR code (address + one-time code) and the same code as 6 digits. The
+  code is valid for 5 minutes and one phone. A paired phone gets a random device key (256 bits) in a cookie
+  (`HttpOnly`, `Secure`, `SameSite=Strict`); the laptop stores only its hash, with a name ("Android phone, Chrome"),
+  the pairing time and the last time it was used. Remove = the key stops working at once.
+- **Allowed from a phone** (allow-list in the phone server): login, sign-up (decision P-Q3), profile, documents
+  (list, upload, delete), query, chats, memories and memory settings, voice and photo notes, the knowledge map and
+  graph reads, reading the AI status. Everything else is refused with "This can only be changed on the laptop".
+- **Login safety**: after 5 failed logins from one device within 10 minutes, that device waits 10 minutes; pairing
+  codes: 5 wrong tries end the code. Logged in the desktop log (no passwords).
+- **Phone layout**: below 768 px wide the screens become one column: a top bar (chat title, AI status, menu), tabs
+  **Chat / Sources / Library** (Library = documents and chats), the question box at the bottom, the X-Ray panel as the
+  Sources tab, touch-sized buttons. The same build serves laptop and phone; the phone is detected by screen width,
+  and laptop-only parts of Settings are hidden when not running inside the desktop app.
+- **Firewall**: the first time phone access is switched on, Windows asks whether PKOS may accept connections; the app
+  explains this before it happens. Hotspot networks are usually "Public" in Windows, so both boxes may be needed; the
+  app says so and the docs show how to change it later.
+
+## 4. Data model
+
+Nothing new in Postgres. In the desktop config (`config.json`, the existing sealed config):
+`phoneAccess: { enabled, port, devices: [{ id, name, keyHash, pairedAt, lastSeenAt }] }`; the certificate and key in
+`<data>/phone/` (key file readable by the user only).
+
+## 5. Changes by area
+
+- **Desktop** (`desktop/src`): new `phone.js` (server, forwarding, allow-list, pairing, device keys, rate limits),
+  `main.js` (start/stop, IPC for the switch, devices, pairing codes), `preload.js` (the new IPC), tests in
+  `desktop/test/phone.test.js` (forwarding incl. streaming, refused paths, pairing, device removal, rate limits).
+- **Backend**: `desktop_entry.py --make-cert <dir> <ip,...>` (certificate); no API changes. A request through the
+  phone server carries `X-PKOS-Via: phone` (set by the phone server, never trusted from outside) for the logs.
+- **Frontend**: `api.js` (same-origin API base when served to a phone), a phone layout in `Dashboard.jsx` / `VaultView.jsx`
+  (tabs below 768 px), `SettingsView.jsx` (Phone access section on the laptop: switch, address, QR code, 6-digit code,
+  paired phones; laptop-only sections hidden on a phone), `MediaInput.jsx` (camera on phones:
+  `capture="environment"`), a small web app manifest so "Add to Home screen" gives a PKOS icon.
+- **Packaging**: the certificate command in the backend build; no new runtime; docs.
+
+## 6. Work plan, step by step (one step per turn)
+
+| Step | Work | Done when |
+|---|---|---|
+| P1 | Phone server: switch (off by default), https with PKOS's own certificate, web UI + API forwarding (streaming), backend still loopback-only, allow-list of paths | Desktop tests; from the laptop's own network address in a browser: the UI loads, login and a streamed answer work, refused paths say why |
+| P2 | Pairing and safety: QR code + 6-digit code, device keys, paired-phones list with Remove, login and code rate limits | Tests (unpaired = pairing page only, removed phone locked out, limits); the QR library is added only after you approve that download |
+| P3 | Phone layout: one column, Chat / Sources / Library tabs, touch sizes, laptop-only settings hidden | Component tests at 375 px; checked in the browser pane in phone size |
+| P4 | Phone media and home-screen icon: camera photos, voice notes over https, web app manifest | Tests; voice and photo notes checked from the phone-sized browser over https |
+| P5 | Docs (user guide with hotspot steps and the certificate warning explained), version 0.7.0, packaged app check | Packaged app: phone access from another device on the hotspot; your own check with your phone using a short checklist |
+
+What I cannot do myself: hold your phone. Steps P1-P4 are checked from this laptop (its network address, phone-sized
+browser); P5 ends with a short checklist for you to try on your phone.
+
+## 7. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Someone on a shared Wi-Fi reaches PKOS | Off by default; pairing required before the login page; https; rate limits; remove devices |
+| Windows Firewall blocks the phone | The app explains the Windows prompt first; docs show how to allow PKOS later |
+| The certificate warning confuses users | One-time per address, explained on the laptop screen next to the QR code; optional trusted install |
+| The laptop's address changes (other Wi-Fi) | Shown fresh each time; certificate renewed; Mobile Hotspot keeps 192.168.137.1 |
+| The laptop sleeps, phone loses PKOS | The phone shows "PKOS on the laptop is not reachable"; docs: keep the lid open / plugged in |
+| A phone changes laptop settings | Allow-list in the phone server, not only hidden buttons |
+| Long answers on a slow network | Answers stream as today; uploads show progress; size limits as on the laptop |
+
+## 8. Out of scope (for now)
+
+Access over the internet (outside the shared network), several laptops syncing, a native phone app, offline use on
+the phone, push notifications.
+
+## 9. Decisions (2026-11-23)
+
+| # | Question | Decision |
+|---|---|---|
+| P-Q1 | How does a phone get in? | QR code (or 6-digit code) pairing once, then login; unpaired devices see only the pairing page |
+| P-Q2 | Voice notes on the phone? | Yes: https with PKOS's own certificate (one-time warning on the phone) |
+| P-Q3 | Who can log in from a phone? | Existing accounts, and sign-up is allowed on a paired phone (the new account's data is on the laptop) |
+| P-Q4 | What can be changed from a phone? | Everyday use only; AI model, API keys, models, backups, import and data folder stay laptop-only |
