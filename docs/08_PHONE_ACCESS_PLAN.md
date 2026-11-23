@@ -105,6 +105,24 @@ Nothing new in Postgres. In the desktop config (`config.json`, the existing seal
 What I cannot do myself: hold your phone. Steps P1-P4 are checked from this laptop (its network address, phone-sized
 browser); P5 ends with a short checklist for you to try on your phone.
 
+### Step P1 results (2026-11-23, dev app)
+
+Built: `desktop/src/phone.js` (https server on port 47100, web UI with a `pkos-api` same-origin marker, API forwarding
+without buffering, allow-list, adapter list without virtual/VPN adapters, certificate renewal), `core/phone_cert.py` +
+`desktop_entry.py --make-cert` (EC P-256, 397 days, the laptop's addresses), the switch in Settings > Phone access
+(addresses with Copy, the certificate code to compare, the "not private" warning and the Windows Firewall prompt
+explained), `frontend/src/api.js` (same address when served to a phone). Tests: 13 desktop (allow-list, addresses,
+certificate renewal, static files and path escapes, forwarding and headers, streaming, refused paths, phone going away,
+engine down, switching off mid-answer), 5 backend, 3 frontend.
+
+In the dev app: switching on took 0.4 s including the certificate. From this laptop through its Mobile Hotspot address
+(192.168.137.1) and its Wi-Fi address, trusting only PKOS's certificate (not skipping the check): the page, sign-up,
+login, a streamed answer, and "This can only be changed on the laptop" for AI settings and import. The backend stayed
+unreachable on the Wi-Fi address. A phone-sized browser (390 x 844) logged in through the real login screen and got an
+answer; the chat screen is the laptop layout squeezed (P3). Switched off, the address no longer answers and the choice
+is remembered. Not yet tested: a real phone through Windows Firewall (P5). **Not to be released before P2**: until
+pairing exists, anyone on the same network can reach the login page while the switch is on.
+
 ## 7. Risks
 
 | Risk | Mitigation |

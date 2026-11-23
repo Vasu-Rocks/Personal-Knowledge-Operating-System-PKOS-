@@ -10,6 +10,7 @@ const { Supervisor } = require('./services');
 const { openLog } = require('./process');
 const { BackupManager } = require('./backup');
 const { collectDiagnostics } = require('./diagnostics');
+const phone = require('./phone');
 
 const isDev = !app.isPackaged || process.argv.includes('--dev');
 const paths = resolvePaths({ packaged: app.isPackaged && !process.argv.includes('--dev'), resourcesPath: process.resourcesPath });
@@ -27,6 +28,9 @@ let mainWindow = null;
 let supervisor = null;
 let backups = null;
 let quitting = false;
+let config = null;       // config.json as loaded at start (non-secret fields are kept current by updateConfig)
+let phoneServer = null;  // phone access (docs/08_PHONE_ACCESS_PLAN.md)
+let phoneError = null;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -226,6 +230,10 @@ function registerIpc() {
     return result;
   });
 
+  // ---- phone access
+  handle('pkos:phone-status', () => phoneStatus());
+  handle('pkos:phone-set', (enabled) => setPhoneAccess(enabled === true));
+
   // ---- diagnostics
   handle('pkos:copy-diagnostics', () => {
     const text = collectDiagnostics({
@@ -235,6 +243,76 @@ function registerIpc() {
     clipboard.writeText(text);
     return { copied: true, characters: text.length };
   });
+}
+
+// ------------------------------------------------------------------------------------------- phone access
+
+const phoneDir = () => path.join(paths.dataDir, 'phone');
+
+/** Makes sure the certificate covers the current addresses; renews it in place while the server runs. */
+async function phoneCertificate() {
+  const addresses = phone.localAddresses().map((a) => a.address);
+  const before = phone.readCertificate(phoneDir());
+  const tls = await phone.ensureCertificate({
+    dir: phoneDir(), addresses, makeCert: phone.backendCertMaker(paths.backend),
+  });
+  if (before && before.meta.sha256 !== tls.meta.sha256) {
+    desktopLog.write(`[phone] new certificate for ${tls.meta.addresses.join(', ')}\n`);
+    if (phoneServer) phoneServer.updateCertificate(tls);
+  }
+  return tls;
+}
+
+async function startPhone() {
+  phoneError = null;
+  try {
+    const tls = await phoneCertificate();
+    if (!phoneServer) {
+      phoneServer = new phone.PhoneServer({
+        webDir: paths.webDir, getApiBase: () => (supervisor ? supervisor.backend.url : null), log: desktopLog,
+      });
+    }
+    await phoneServer.start({ port: (config.phoneAccess && config.phoneAccess.port) || phone.DEFAULT_PORT, tls });
+  } catch (e) {
+    phoneError = e.code === 'EADDRINUSE'
+      ? 'Another program is using the port for phone access. Close it, or restart the laptop, and try again.'
+      : e.message;
+    desktopLog.write(`[phone] could not start: ${e.message}\n`);
+  }
+}
+
+async function stopPhone() {
+  if (phoneServer) await phoneServer.stop();
+}
+
+async function phoneStatus() {
+  const enabled = Boolean(config && config.phoneAccess && config.phoneAccess.enabled);
+  let fingerprint = null;
+  if (enabled && phoneServer && phoneServer.running) {
+    try {
+      fingerprint = (await phoneCertificate()).meta.sha256; // the laptop may have joined another network meanwhile
+    } catch (e) {
+      phoneError = e.message;
+    }
+  }
+  const running = Boolean(phoneServer && phoneServer.running);
+  return {
+    enabled,
+    running,
+    port: running ? phoneServer.port : null,
+    addresses: phone.localAddresses().map((a) => ({ ...a, url: running ? `https://${a.address}:${phoneServer.port}` : null })),
+    fingerprint,
+    error: phoneError,
+  };
+}
+
+async function setPhoneAccess(enabled) {
+  config.phoneAccess = { ...(config.phoneAccess || {}), enabled: Boolean(enabled) };
+  updateConfig(paths.configFile, { phoneAccess: config.phoneAccess });
+  desktopLog.write(`[phone] switched ${enabled ? 'on' : 'off'}\n`);
+  if (enabled) await startPhone();
+  else await stopPhone();
+  return phoneStatus();
 }
 
 // ------------------------------------------------------------------------------------------- lifecycle
@@ -248,6 +326,7 @@ async function startServices() {
       desktopLog.write(`[pkos] could not record the app version: ${e.message}\n`);
     }
     if (!mainWindow) createMainWindow();
+    if (config.phoneAccess && config.phoneAccess.enabled && !(phoneServer && phoneServer.running)) await startPhone();
   } catch (e) {
     supervisor.fatal = e.message;
     broadcast('pkos:status', supervisor.snapshot());
@@ -265,6 +344,7 @@ async function boot() {
   let cfg;
   try {
     cfg = loadOrCreateConfig(paths.configFile, safeStorage);
+    config = cfg;
   } catch (e) {
     dialog.showErrorBox('PKOS cannot start', e.message);
     app.exit(1);
@@ -306,7 +386,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   quitting = true;
   for (const win of BrowserWindow.getAllWindows()) win.hide();
-  supervisor.stopAll().finally(() => app.exit(0));
+  stopPhone().catch(() => {}).then(() => supervisor.stopAll()).finally(() => app.exit(0));
 });
 
 app.on('window-all-closed', () => app.quit());

@@ -91,6 +91,14 @@ if __name__ == "__main__":
     if "--smoke-test" in sys.argv:
         smoke_test()
         raise SystemExit(0)
+    if "--make-cert" in sys.argv:
+        # `--make-cert <dir> <ip,ip,...>`: the https certificate for phone access (docs/08_PHONE_ACCESS_PLAN.md).
+        import json
+
+        from core.phone_cert import make_certificate
+        at = sys.argv.index("--make-cert")
+        print(json.dumps(make_certificate(sys.argv[at + 1], sys.argv[at + 2].split(",") if len(sys.argv) > at + 2 else [])))
+        raise SystemExit(0)
     if os.getenv("PKOS_PARENT_PID"):
         exit_with_parent(int(os.environ["PKOS_PARENT_PID"]))
 

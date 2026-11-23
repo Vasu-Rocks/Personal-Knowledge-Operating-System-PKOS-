@@ -28,4 +28,8 @@ contextBridge.exposeInMainWorld('pkos', {
     openFolder: () => ipcRenderer.invoke('pkos:backup-open-folder'),
   },
   copyDiagnostics: () => ipcRenderer.invoke('pkos:copy-diagnostics'),
+  phone: {
+    status: () => ipcRenderer.invoke('pkos:phone-status'),
+    setEnabled: (enabled) => ipcRenderer.invoke('pkos:phone-set', enabled),
+  },
 });

@@ -8,6 +8,7 @@ import { CLOUD_PROVIDERS } from '../lib/models';
 import OllamaModelPicker from './ai/OllamaModelPicker';
 import CloudKeyForm from './ai/CloudKeyForm';
 import MemoryPage from './memory/MemoryPage';
+import PhoneAccessSection from './phone/PhoneAccessSection';
 import './ai/ai.css';
 
 const PROVIDERS = [
@@ -226,6 +227,9 @@ export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
 
           {/* Memory */}
           <MemoryPage />
+
+          {/* Phone access (desktop app only) */}
+          {desktop && desktop.isDesktop && desktop.phone && <PhoneAccessSection desktop={desktop} />}
 
           {/* Desktop app */}
           {desktop && desktop.isDesktop && desktop.backups && <DesktopDataSection desktop={desktop} />}
