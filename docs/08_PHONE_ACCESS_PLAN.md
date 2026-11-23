@@ -139,6 +139,28 @@ In the dev app with a phone-sized browser through the hotspot address: the pairi
 still paired; the laptop showed "Paired: Android phone · Chrome"; after Remove on the laptop the phone was back to the
 pairing page. Found and fixed: the countdown started from when Settings was opened (showed 5:27 for a 5-minute code).
 
+### Step P3 results (2026-11-23, dev app, phone-sized browser 390 x 844)
+
+Built: below 768 px (`lib/useIsPhone.js`) the three panels stay mounted and one is shown at a time, chosen with a
+bottom tab bar Chat / Sources (n) / Library; opening or starting a chat in Library shows Chat, tapping a citation shows
+Sources with the passage highlighted; a shorter header and a compact AI badge (model name only); 16 px inputs (phones
+zoom into smaller ones); dialogs fill the screen; text fields get their own line; the Library tab refreshes the
+document list when opened; `100dvh` so the browser's address bar does not hide the question box. On a phone (served by
+the phone server) Settings shows the AI model read-only ("llama3.2 · on the laptop") without Save or "Run setup
+again", and the AI setup wizard never opens. Tests: 4 layout + 2 phone-settings (82 frontend in all).
+
+Found and fixed on the way, both also affecting the laptop:
+- **Citations were plain links.** react-markdown 10 drops links with unknown schemes, so `citation://` links lost
+  their target and "[Chunk 1]" showed as an underlined link, not the clickable badge. Now `citation://` is let through
+  (`urlTransform`), every other URL keeps the safe default.
+- **A tap on a citation did nothing.** The Markdown link renderer was a new function on every render, so react-markdown
+  remounted the badge when hovering changed the highlight; a phone tap (hover and click at once) hit the removed badge.
+  The renderer is now one stable component (`components/chats/CitationLink.jsx`) that reads its state from a context.
+
+In the phone-sized browser through the hotspot address: logged in, the page exactly as wide as the screen (374 px, no
+sideways scrolling), an answer with a "Chunk 1" badge, tapping it opened Sources with the passage, Library listed the
+document, Settings fit the screen with the AI model read-only and no Save. The laptop layout was unchanged.
+
 ## 7. Risks
 
 | Risk | Mitigation |

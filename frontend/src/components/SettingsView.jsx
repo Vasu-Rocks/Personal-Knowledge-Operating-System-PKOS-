@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, Server, Cloud, Save, CheckCircle2, Network, RefreshCw, Sparkles, AlertTriangle } from 'lucide-react';
 import DesktopDataSection from './ai/DesktopDataSection';
 import { useAuth } from '../context/useAuth';
-import { API } from '../api';
+import { API, IS_PHONE_ACCESS } from '../api';
 import { deleteOllamaModel, getLlmSettings, getOllamaModels, saveLlmSettings, settingsBody } from '../lib/llmApi';
 import { CLOUD_PROVIDERS } from '../lib/models';
 import OllamaModelPicker from './ai/OllamaModelPicker';
@@ -151,7 +151,16 @@ export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
         </div>
 
         <div className="ai-card-body">
-          {/* AI provider */}
+          {/* AI provider: chosen on the laptop; a phone shows it read-only (decision P-Q4) */}
+          {IS_PHONE_ACCESS ? (
+          <section data-testid="phone-ai-readonly">
+            <div className="ai-section-title"><Sparkles size={14} /> AI model</div>
+            <p className="ai-lead">
+              {saved ? `${saved.effective_model || 'Not set up yet'} · ${saved.provider === 'ollama' ? 'on the laptop' : (CLOUD_PROVIDERS[saved.provider] || {}).label || saved.provider}` : 'Loading…'}
+            </p>
+            <p className="ai-muted">The AI runs on the laptop. Choose the model or add API keys there, in PKOS's Settings.</p>
+          </section>
+          ) : (
           <section>
             <div className="ai-section-title" style={{ justifyContent: 'space-between' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Sparkles size={14} /> AI model</span>
@@ -204,6 +213,7 @@ export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
               <p className="ai-muted" style={{ marginTop: 10 }}>Save to switch PKOS to this provider.</p>
             )}
           </section>
+          )}
 
           {/* Knowledge map */}
           <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -235,12 +245,14 @@ export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
           {desktop && desktop.isDesktop && desktop.backups && <DesktopDataSection desktop={desktop} />}
         </div>
 
+        {!IS_PHONE_ACCESS && (
         <div className="ai-card-footer">
           <span className="ai-muted">{justSaved ? '' : 'API keys are stored encrypted and never shown again.'}</span>
           <button type="button" className="ai-btn ai-btn-primary" onClick={handleSave} disabled={saving || !saved}>
             {justSaved ? <><CheckCircle2 size={16} /> Saved</> : <><Save size={16} /> {saving ? 'Saving…' : 'Save'}</>}
           </button>
         </div>
+        )}
       </div>
     </div>
   );

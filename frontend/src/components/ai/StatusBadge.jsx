@@ -2,11 +2,15 @@ import React from 'react';
 import { CLOUD_PROVIDERS } from '../../lib/models';
 import './ai.css';
 
-/** Header pill: which model answers, and whether anything needs attention. Clicking it opens AI setup. */
-export default function StatusBadge({ llm, system, error, onClick }) {
+/**
+ * Header pill: which model answers, and whether anything needs attention. Clicking it opens AI setup.
+ * compact (phone layout): the model name only; the full text stays in the tooltip and the accessible name.
+ */
+export default function StatusBadge({ llm, system, error, onClick, compact = false }) {
   let tone = 'warn';
   let text = 'Checking AI…';
   let title = '';
+  let short = null;
 
   if (error) {
     tone = 'err';
@@ -17,6 +21,7 @@ export default function StatusBadge({ llm, system, error, onClick }) {
     if (llm.ready) {
       tone = 'ok';
       text = `${llm.model} · ${providerLabel}`;
+      short = llm.model;
     } else {
       tone = 'warn';
       text = 'AI not set up';
@@ -35,7 +40,7 @@ export default function StatusBadge({ llm, system, error, onClick }) {
   return (
     <button type="button" className="ai-status" onClick={onClick} title={title} aria-label={`AI status: ${text}. ${title}`}>
       <span className={`ai-dot ${tone}`} />
-      <span>{text}</span>
+      <span className="ai-status-text">{compact && short ? short : text}</span>
     </button>
   );
 }

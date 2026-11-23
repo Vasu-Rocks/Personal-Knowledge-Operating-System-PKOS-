@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/useAuth';
 import VaultView from './VaultView';
-import { API } from '../api';
+import { API, IS_PHONE_ACCESS } from '../api';
+import useIsPhone from '../lib/useIsPhone';
 import { readSSE } from '../lib/sse';
 import { migrateLegacySettings } from '../lib/llmApi';
 import useAiStatus from './ai/useAiStatus';
@@ -15,8 +16,10 @@ import { EMPTY_GRAPH, prepareGraph, toUiMessages } from '../lib/chatView';
 import { guessKind, listMemories, memoryDraft } from '../lib/memoriesApi';
 import RememberDialog from './memory/RememberDialog';
 import SuggestionBar from './memory/SuggestionBar';
-import { Send, Terminal, KeySquare, Activity, Bot, Sparkles, Bookmark, Brain, MessagesSquare } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import CitationLink from './chats/CitationLink';
+import CitationContext from '../lib/citationContext';
+import { Send, Terminal, KeySquare, Activity, Bot, Sparkles, Bookmark, Brain, MessagesSquare, MessageCircle, Library } from 'lucide-react';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ForceGraph2D from 'react-force-graph-2d';
 
@@ -30,6 +33,11 @@ function remember(id) {
   try { if (id) localStorage.setItem(LAST_CHAT_KEY, id); else localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
 }
 
+// react-markdown drops links with unknown schemes; our own citation:// links (made by processCitations) must stay,
+// or "[Chunk 1]" shows as a plain link instead of the clickable citation. Every other URL keeps the safe default.
+const MARKDOWN_COMPONENTS = { a: CitationLink }; // one stable renderer (see lib/citationContext.js)
+const keepCitations = (url) => (url.startsWith('citation://') ? url : defaultUrlTransform(url));
+
 function rememberedChat() {
   try { return localStorage.getItem(LAST_CHAT_KEY); } catch { return null; }
 }
@@ -38,6 +46,11 @@ export default function Dashboard() {
   const { authFetch } = useAuth();
   const ai = useAiStatus(authFetch);
   const [setupOpen, setSetupOpen] = useState(false);
+  // Phone layout (docs/08_PHONE_ACCESS_PLAN.md P3): one panel at a time, chosen with the tab bar at the bottom.
+  const isPhone = useIsPhone();
+  const [phoneTab, setPhoneTab] = useState('chat');
+  // The AI model is chosen on the laptop: a phone never opens the setup wizard (the server refuses it anyway).
+  const openSetup = IS_PHONE_ACCESS ? undefined : () => setSetupOpen(true);
 
   // First load: move provider/keys from old browser storage to the server, then open setup if no AI is usable.
   useEffect(() => {
@@ -49,7 +62,7 @@ export default function Dashboard() {
         console.error('Could not migrate AI settings from browser storage', err);
       }
       const status = await ai.refresh();
-      if (!cancelled && status && !status.ready && !status.configured && !sessionStorage.getItem(SETUP_SKIPPED)) {
+      if (!cancelled && !IS_PHONE_ACCESS && status && !status.ready && !status.configured && !sessionStorage.getItem(SETUP_SKIPPED)) {
         setSetupOpen(true);
       }
     })();
@@ -191,60 +204,27 @@ export default function Dashboard() {
     });
   };
 
-  const MarkdownComponents = {
-    // `node` is destructured only to keep it out of the DOM props spread below.
-    // eslint-disable-next-line no-unused-vars
-    a: ({ node, href, children, ...props }) => {
-      if (href && href.startsWith('citation://')) {
-        const url = new URL(href);
-        const type = url.hostname;
-        const id = decodeURIComponent(url.pathname.substring(1));
-        
-        const isHovered = activeFocus && activeFocus.type === type && activeFocus.id === id;
-        
-        return (
-          <span
-            className="citation-badge"
-            style={{
-              display: 'inline-block',
-              margin: '0 4px',
-              padding: '2px 8px',
-              borderRadius: '12px',
-              fontSize: '0.85em',
-              fontWeight: '600',
-              cursor: 'pointer',
-              background: type === 'chunk' 
-                ? (isHovered ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.15)') 
-                : (isHovered ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.15)'),
-              color: type === 'chunk' ? '#10b981' : '#3b82f6',
-              border: `1px solid ${type === 'chunk' ? '#10b981' : '#3b82f6'}`,
-              transition: 'all 0.2s ease',
-              transform: isHovered ? 'scale(1.05)' : 'scale(1)'
-            }}
-            onMouseEnter={() => setActiveFocus({ type, id })}
-            onMouseLeave={() => setActiveFocus(null)}
-            onClick={() => {
-              if (type === 'chunk') {
-                document.getElementById(`source-card-${id}`)?.scrollIntoView({ 
-                  behavior: 'smooth', block: 'nearest' 
-                });
-              } else if (type === 'entity') {
-                if (graphData.nodes) {
-                  const targetNode = graphData.nodes.find(n => n.name.replace('⭐ ', '') === id || n.name === id);
-                  if (targetNode && graphRef.current) {
-                    graphRef.current.centerAt(targetNode.x, targetNode.y, 1000);
-                    graphRef.current.zoom(8, 2000);
-                  }
-                }
-              }
-            }}
-          >
-            {children}
-          </span>
-        );
+  // What a citation badge does when tapped (CitationLink gets these through CitationContext).
+  const citations = {
+    activeFocus,
+    setActiveFocus,
+    openChunk: (id) => {
+      if (isPhone) {
+        // On a phone the sources are their own tab: go there and show the passage, highlighted.
+        setActiveFocus({ type: 'chunk', id });
+        setPhoneTab('sources');
+        setTimeout(() => document.getElementById(`source-card-${id}`)?.scrollIntoView({ block: 'center' }), 50);
+        return;
       }
-      return <a href={href} {...props} style={{ color: 'var(--accent-blue)', textDecoration: 'underline' }}>{children}</a>;
-    }
+      document.getElementById(`source-card-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    },
+    openEntity: (id) => {
+      const targetNode = (graphData.nodes || []).find(n => n.name.replace('⭐ ', '') === id || n.name === id);
+      if (targetNode && graphRef.current) {
+        graphRef.current.centerAt(targetNode.x, targetNode.y, 1000);
+        graphRef.current.zoom(8, 2000);
+      }
+    },
   };
 
   const scrollToBottom = () => {
@@ -350,15 +330,25 @@ export default function Dashboard() {
   const canRemember = (m) => (m.type === 'user' || m.type === 'ai') && !m.failed && m.id !== streamingId
     && Boolean((m.plain ?? m.text ?? '').trim()) && !String(m.text).startsWith('System Error');
 
+  const sourceCount = selectedMsg?.sources?.length || 0;
+  const PHONE_TABS = [
+    ['chat', 'Chat', MessageCircle],
+    ['sources', sourceCount ? `Sources (${sourceCount})` : 'Sources', Activity],
+    ['library', 'Library', Library],
+  ];
+
   return (
-    <div className="os-shell">
+    <div className={`os-shell${isPhone ? ' phone' : ''}`} data-tab={isPhone ? phoneTab : undefined}>
       {/* 1. Left: Vault / Documents */}
       <VaultView
-        width={leftWidth} onOpenSetup={() => setSetupOpen(true)} onAiChanged={ai.refresh}
+        width={leftWidth} onOpenSetup={openSetup} onAiChanged={ai.refresh}
+        shown={!isPhone || phoneTab === 'library'}
         chatsPanel={(
           <ChatList
             chats={chats.chats} activeId={conversationId} loading={chats.loading} error={chats.error}
-            hasMore={chats.hasMore} onLoadMore={chats.loadMore} onNew={newChat} onOpen={openChat}
+            hasMore={chats.hasMore} onLoadMore={chats.loadMore}
+            onNew={() => { newChat(); setPhoneTab('chat'); }}
+            onOpen={(id) => { openChat(id); setPhoneTab('chat'); }}
             onRename={async (id, title) => { await chats.rename(id, title); if (id === conversationId) setChatTitle(title); }}
             onDelete={deleteChat}
           />
@@ -378,20 +368,20 @@ export default function Dashboard() {
       {/* 2. Center: Terminal Chat */}
       <div className="pane-center">
         {/* Top Header */}
-        <div style={{ height: '60px', borderBottom: 'var(--pane-border)', display: 'flex', alignItems: 'center', padding: '0 24px', background: 'rgba(0,0,0,0.1)' }}>
-          <Terminal size={18} color="var(--accent-blue)" style={{ marginRight: '12px' }} />
-          <span style={{ fontWeight: '500', fontSize: '14px', letterSpacing: '0.5px' }}>Generative Inference Core</span>
+        <div style={{ height: isPhone ? '52px' : '60px', borderBottom: 'var(--pane-border)', display: 'flex', alignItems: 'center', padding: isPhone ? '0 12px' : '0 24px', background: 'rgba(0,0,0,0.1)' }}>
+          <Terminal size={18} color="var(--accent-blue)" style={{ marginRight: '12px', flexShrink: 0 }} />
+          {!isPhone && <span style={{ fontWeight: '500', fontSize: '14px', letterSpacing: '0.5px' }}>Generative Inference Core</span>}
           <span data-testid="chat-title" title={chatTitle || 'New chat'} style={{
-            marginLeft: '12px', fontSize: '13px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap', maxWidth: '40%',
+            marginLeft: isPhone ? 0 : '12px', fontSize: '13px', color: isPhone ? 'var(--text-primary)' : 'var(--text-muted)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: isPhone ? '55%' : '40%',
           }}>
-            · {chatTitle || 'New chat'}
+            {isPhone ? '' : '· '}{chatTitle || 'New chat'}
           </span>
-          <StatusBadge llm={ai.llm} system={ai.system} error={ai.error} onClick={() => setSetupOpen(true)} />
+          <StatusBadge llm={ai.llm} system={ai.system} error={ai.error} onClick={openSetup} compact={isPhone} />
         </div>
 
         {/* Message Stream */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: isPhone ? '16px 12px' : '32px', display: 'flex', flexDirection: 'column', gap: isPhone ? '18px' : '24px' }}>
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -400,7 +390,7 @@ export default function Dashboard() {
                 if (msg.type === "ai" || msg.type === "system") setSelectedMsgId(msg.id);
               }}
               style={{
-                display: 'flex', gap: '16px', maxWidth: '85%', cursor: (msg.type === 'ai' || msg.type === 'system') ? 'pointer' : 'default',
+                display: 'flex', gap: isPhone ? '10px' : '16px', maxWidth: isPhone ? '94%' : '85%', cursor: (msg.type === 'ai' || msg.type === 'system') ? 'pointer' : 'default',
                 alignSelf: msg.type === 'user' ? 'flex-end' : 'flex-start',
                 opacity: selectedMsgId === msg.id && msg.type !== 'user' ? 1 : (msg.type === 'user' ? 1 : 0.7),
                 transition: 'opacity var(--transition-fast)'
@@ -426,9 +416,11 @@ export default function Dashboard() {
               }}>
                 {msg.type === 'ai' || msg.type === 'system' ? (
                   <div className={msg.type === 'system' ? 'system-msg-text' : 'markdown-prose'}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                    <CitationContext.Provider value={citations}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS} urlTransform={keepCitations}>
                       {processCitations(msg.text)}
                     </ReactMarkdown>
+                    </CitationContext.Provider>
                     {msg.memoriesOnly && (
                       <div className="memory-label" data-testid="memory-label">
                         <Brain size={12} /> Answered from your saved memories, not from your documents
@@ -487,7 +479,7 @@ export default function Dashboard() {
         </div>
 
         {/* Input Dock */}
-        <div style={{ padding: '24px', background: 'linear-gradient(to top, var(--bg-core) 60%, transparent)' }}>
+        <div style={{ padding: isPhone ? '8px 10px 10px' : '24px', background: 'linear-gradient(to top, var(--bg-core) 60%, transparent)' }}>
           <SuggestionBar
             suggestions={conversationId ? suggestions.filter((m) => m.source_conversation_id === conversationId) : []}
             onDone={suggestionDone}
@@ -508,7 +500,7 @@ export default function Dashboard() {
               onChange={(e) => setInputVal(e.target.value)}
               placeholder="Query the unified database..."
               autoFocus
-              style={{ flex: 1, padding: '12px 16px', fontSize: '15px' }}
+              style={{ flex: 1, minWidth: 0, padding: isPhone ? '10px 8px' : '12px 16px', fontSize: isPhone ? '16px' : '15px' }}
             />
             <button
               type="submit" disabled={isTyping || !inputVal.trim()}
@@ -541,7 +533,7 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+        <div style={{ padding: isPhone ? '14px' : '20px', flex: 1, overflowY: 'auto' }}>
           {!selectedMsg ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
               Select a message to inspect matrix bindings.
@@ -574,7 +566,7 @@ export default function Dashboard() {
                     <ForceGraph2D
                       ref={graphRef}
                       graphData={graphData}
-                      width={rightWidth - 40}
+                      width={isPhone ? Math.max(200, window.innerWidth - 40) : rightWidth - 40}
                       height={300}
                       nodeLabel="name"
                       nodeAutoColorBy="category"
@@ -713,6 +705,19 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Phone: one panel at a time */}
+      {isPhone && (
+        <nav className="phone-tabs" role="tablist" aria-label="PKOS sections">
+          {PHONE_TABS.map(([key, label, icon]) => (
+            <button key={key} type="button" role="tab" aria-selected={phoneTab === key}
+              className={phoneTab === key ? 'active' : undefined} onClick={() => setPhoneTab(key)}>
+              {React.createElement(icon, { size: 18 })}
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

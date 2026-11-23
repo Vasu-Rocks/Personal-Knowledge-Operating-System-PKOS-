@@ -13,7 +13,7 @@ function readTab() {
   try { return localStorage.getItem(TAB_KEY) === 'chats' ? 'chats' : 'documents'; } catch { return 'documents'; }
 }
 
-export default function VaultView({ width = 250, onOpenSetup, onAiChanged, chatsPanel = null }) {
+export default function VaultView({ width = 250, onOpenSetup, onAiChanged, chatsPanel = null, shown = true }) {
   const { authFetch, logout, user } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [isHovering, setIsHovering] = useState(false);
@@ -42,9 +42,10 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged, chats
     }
   }, [authFetch]);
 
+  // On a phone this panel is a tab: refresh the list whenever it is opened (documents may come from the laptop).
   useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+    if (shown) fetchDocuments();
+  }, [fetchDocuments, shown]);
 
   // Poll while any graph job is queued or running so progress stays live.
   const hasActiveJob = documents.some(d =>
