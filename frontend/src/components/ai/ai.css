@@ -109,3 +109,6 @@
 .suggestion-bar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .suggestion-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.06); }
 .suggestion-row .msg-action { color: var(--text-secondary); white-space: nowrap; }
+.phone-pairing { display: flex; gap: 16px; align-items: flex-start; padding: 14px; border: 1px solid rgba(59, 130, 246, 0.35); border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.06); flex-wrap: wrap; }
+.phone-pairing img { background: #fff; border-radius: 8px; image-rendering: pixelated; flex-shrink: 0; }
+.phone-code { font-family: monospace; font-size: 28px; letter-spacing: 4px; color: var(--text-primary); }

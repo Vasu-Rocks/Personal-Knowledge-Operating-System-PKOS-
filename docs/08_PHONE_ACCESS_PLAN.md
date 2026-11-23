@@ -123,6 +123,22 @@ answer; the chat screen is the laptop layout squeezed (P3). Switched off, the ad
 is remembered. Not yet tested: a real phone through Windows Firewall (P5). **Not to be released before P2**: until
 pairing exists, anyone on the same network can reach the login page while the switch is on.
 
+### Step P2 results (2026-11-23, dev app)
+
+Built: `desktop/src/pairing.js` (6-digit one-time codes, 5 minutes, one phone, 5 tries; per-address block after 10
+wrong codes in 10 minutes; device keys of 256 bits in an `HttpOnly; Secure; SameSite=Strict` cookie, only their SHA-256
+kept in `config.json` with name, pairing time and last use; per-phone block after 5 wrong passwords in 10 minutes; the
+pairing page), the phone server's gate (an unpaired device gets the pairing page, its API calls 401 and nothing reaches
+the backend; `?pair=<code>` from the QR code or the typed code pairs; Remove closes the phone's open connections),
+Settings > Phone access (Pair a phone: QR code via `qrcode-generator` 2.0.4 (MIT, no dependencies; approved
+2026-11-23), the code as "975 676", a countdown, the network the QR code points at, Cancel; "Paired: <phone>"; paired
+phones with last use and Remove). Tests: 5 pairing rules + 5 server-level (49 desktop in all), 5 frontend.
+
+In the dev app with a phone-sized browser through the hotspot address: the pairing page only; a wrong code answered
+"That code is not right. 4 tries left."; the QR code's link paired it, then login and an answer; reopened later it was
+still paired; the laptop showed "Paired: Android phone · Chrome"; after Remove on the laptop the phone was back to the
+pairing page. Found and fixed: the countdown started from when Settings was opened (showed 5:27 for a 5-minute code).
+
 ## 7. Risks
 
 | Risk | Mitigation |

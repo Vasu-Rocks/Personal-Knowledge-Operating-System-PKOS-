@@ -31,5 +31,8 @@ contextBridge.exposeInMainWorld('pkos', {
   phone: {
     status: () => ipcRenderer.invoke('pkos:phone-status'),
     setEnabled: (enabled) => ipcRenderer.invoke('pkos:phone-set', enabled),
+    pair: () => ipcRenderer.invoke('pkos:phone-pair'),
+    cancelPair: () => ipcRenderer.invoke('pkos:phone-cancel-pair'),
+    remove: (id) => ipcRenderer.invoke('pkos:phone-remove', id),
   },
 });

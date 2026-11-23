@@ -9,11 +9,13 @@ const https = require('https');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
+const { Pairing, deviceCookie, pairingPage } = require('./pairing');
 
 const DEFAULT_PORT = 47100;   // fixed, so a bookmark on the phone keeps working
 const RENEW_BEFORE_DAYS = 30;
 const LAPTOP_ONLY = 'This can only be changed on the laptop.';
 const NOT_REACHABLE = 'PKOS on the laptop is starting or not reachable. Try again in a moment.';
+const NOT_PAIRED = 'This device is not paired with PKOS. Open the address again to pair it.';
 
 // What a phone may call: everyday use (decision P-Q4). Anything not listed - changing the AI model or API keys,
 // downloading or deleting models, importing another database - is refused. New endpoints are refused until added.
@@ -119,19 +121,40 @@ const PAGE_HEADERS = {
 const DROP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer',
   'host', 'origin', 'x-pkos-via', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host']);
 
-function sendJson(res, status, body) {
+function sendJson(res, status, body, headers = {}) {
   const text = JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...PAGE_HEADERS });
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...PAGE_HEADERS, ...headers });
   res.end(text);
 }
+
+function sendPage(res, status, html, headers = {}) {
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html),
+    'Cache-Control': 'no-store', ...PAGE_HEADERS, ...headers });
+  res.end(html);
+}
+
+/** A small form body (the pairing code); anything larger is cut off. */
+function readForm(req, limit = 2048) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (c) => { body += c; if (body.length > limit) req.destroy(); });
+    req.on('end', () => resolve(new URLSearchParams(body)));
+    req.on('error', () => resolve(new URLSearchParams()));
+  });
+}
+
+const minutes = (seconds) => Math.max(1, Math.ceil(seconds / 60));
 
 class PhoneServer {
   /**
    * webDir: the built web UI. getApiBase(): the backend's http://127.0.0.1:<port> (null while it is not running).
    * log: { write(line) }.
    */
-  constructor({ webDir, getApiBase, log = { write() {} } }) {
+  constructor({ webDir, getApiBase, pairing = new Pairing(), log = { write() {} } }) {
     this.webDir = path.resolve(webDir);
+    this.pairing = pairing;
+    this.open = new Map(); // device id -> open responses, so removing a phone cuts it off at once
     this.getApiBase = getApiBase;
     this.log = log;
     this.server = null;
@@ -186,11 +209,36 @@ class PhoneServer {
     } catch {
       return sendJson(res, 400, { detail: 'Bad request.' });
     }
-    if (url.pathname === '/api/v1' || url.pathname.startsWith('/api/v1/')) {
+    const isApi = url.pathname === '/api/v1' || url.pathname.startsWith('/api/v1/');
+
+    // Pairing: a device that is not paired gets the pairing page and nothing else (decision P-Q1).
+    if (url.pathname === '/pair' && req.method === 'POST') return this.pair(req, res, null);
+    const device = this.pairing.deviceFor(req.headers.cookie);
+    if (!device) {
+      if (req.method === 'GET' && url.searchParams.has('pair')) return this.pair(req, res, url.searchParams.get('pair'));
+      req.resume();
+      if (isApi || url.pathname === '/health') return sendJson(res, 401, { detail: NOT_PAIRED });
+      return sendPage(res, 200, pairingPage());
+    }
+    if (url.searchParams.has('pair')) return sendPage(res, 303, '', { Location: '/' }); // scanned again: already paired
+    this.track(device.id, res);
+
+    if (isApi) {
       const apiPath = url.pathname.slice('/api/v1'.length) || '/';
       if (!isAllowed(req.method, apiPath)) {
         req.resume();
         return sendJson(res, 403, { detail: LAPTOP_ONLY });
+      }
+      if (apiPath === '/login') {
+        const wait = this.pairing.loginBlockedFor(device.id);
+        if (wait) {
+          req.resume();
+          return sendJson(res, 429, { detail: `Too many wrong passwords from this phone. Try again in ${minutes(wait)} minutes.` },
+            { 'Retry-After': String(wait) });
+        }
+        return this.forward(req, res, url, (status) => {
+          if (status === 200 || status === 401) this.pairing.loginResult(device.id, status === 200);
+        });
       }
       return this.forward(req, res, url);
     }
@@ -199,7 +247,36 @@ class PhoneServer {
     return this.serveFile(req, res, url.pathname);
   }
 
-  forward(req, res, url) {
+  /** Checks a pairing code (from the QR code's ?pair= or the form) and gives the phone its device key. */
+  async pair(req, res, fromLink) {
+    const code = fromLink !== null ? fromLink : (await readForm(req)).get('code');
+    const result = this.pairing.tryCode(code, { address: req.socket.remoteAddress || '', userAgent: req.headers['user-agent'] });
+    if (!result.ok) {
+      this.log.write(`[phone] pairing refused from ${req.socket.remoteAddress}\n`);
+      return sendPage(res, 400, pairingPage({ error: result.error }));
+    }
+    this.log.write(`[phone] paired: ${result.device.name}\n`);
+    if (this.onPaired) this.onPaired(result.device);
+    return sendPage(res, 303, '', { Location: '/', 'Set-Cookie': deviceCookie(result.cookie) });
+  }
+
+  track(deviceId, res) {
+    if (!this.open.has(deviceId)) this.open.set(deviceId, new Set());
+    const set = this.open.get(deviceId);
+    set.add(res);
+    res.on('close', () => set.delete(res));
+  }
+
+  /** Removes a paired phone: its key stops working and whatever it has open is closed. */
+  removeDevice(id) {
+    const removed = this.pairing.remove(id);
+    for (const res of this.open.get(id) || []) res.destroy();
+    this.open.delete(id);
+    if (removed) this.log.write(`[phone] removed a paired device\n`);
+    return removed;
+  }
+
+  forward(req, res, url, onStatus = null) {
     const base = this.getApiBase();
     if (!base) {
       req.resume();
@@ -217,6 +294,7 @@ class PhoneServer {
       for (const [k, v] of Object.entries(up.headers)) if (!DROP.has(k.toLowerCase())) out[k] = v;
       out['X-Content-Type-Options'] = 'nosniff';
       if (String(up.headers['content-type'] || '').startsWith('text/event-stream')) out['X-Accel-Buffering'] = 'no';
+      if (onStatus) onStatus(up.statusCode);
       res.writeHead(up.statusCode || 502, out);
       if (res.flushHeaders) res.flushHeaders();
       up.pipe(res); // streamed: tokens reach the phone as they are made
@@ -263,6 +341,6 @@ class PhoneServer {
 }
 
 module.exports = {
-  DEFAULT_PORT, LAPTOP_ONLY, PhoneServer, isAllowed, localAddresses, certificateFits, ensureCertificate,
+  DEFAULT_PORT, LAPTOP_ONLY, NOT_PAIRED, PhoneServer, isAllowed, localAddresses, certificateFits, ensureCertificate,
   backendCertMaker, readCertificate,
 };

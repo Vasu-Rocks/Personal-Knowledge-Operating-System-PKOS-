@@ -9,8 +9,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { test, before, after } = require('node:test');
 const {
-  LAPTOP_ONLY, PhoneServer, certificateFits, ensureCertificate, isAllowed, localAddresses, readCertificate,
+  LAPTOP_ONLY, NOT_PAIRED, PhoneServer, certificateFits, ensureCertificate, isAllowed, localAddresses, readCertificate,
 } = require('../src/phone');
+const { Pairing } = require('../src/pairing');
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'phone-cert');
 const TLS = readCertificate(FIXTURE);
@@ -83,6 +84,8 @@ let phone;
 let base;
 let webDir;
 let aborted;
+let pairing;
+let cookie; // the paired test phone's device cookie
 
 before(async () => {
   webDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkos-web-'));
@@ -113,9 +116,12 @@ before(async () => {
   });
   await new Promise((r) => backend.listen(0, '127.0.0.1', r));
   backendUrl = `http://127.0.0.1:${backend.address().port}`;
-  phone = new PhoneServer({ webDir, getApiBase: () => backendUrl });
+  pairing = new Pairing();
+  phone = new PhoneServer({ webDir, getApiBase: () => backendUrl, pairing });
   const port = await phone.start({ port: 0, host: '127.0.0.1', tls: TLS });
   base = `https://127.0.0.1:${port}`;
+  const paired = pairing.tryCode(pairing.newCode().code, { address: 'test', userAgent: 'test' });
+  cookie = `pkos_device=${paired.cookie}`;
 });
 
 after(async () => {
@@ -124,10 +130,11 @@ after(async () => {
 });
 
 /** A request to the phone server; resolves { status, headers, body, firstChunkMs }. */
-function call(method, urlPath, { headers = {}, body = null } = {}) {
+function call(method, urlPath, { headers = {}, body = null, paired = true } = {}) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
-    const req = https.request(`${base}${urlPath}`, { method, headers, rejectUnauthorized: false }, (res) => {
+    const all = paired ? { Cookie: cookie, ...headers } : headers;
+    const req = https.request(`${base}${urlPath}`, { method, headers: all, rejectUnauthorized: false }, (res) => {
       let text = '';
       let firstChunkMs = null;
       res.setEncoding('utf8');
@@ -201,7 +208,7 @@ test('laptop-only paths are refused without reaching the backend', async () => {
 test('a phone that goes away stops the answer on the laptop', async () => {
   aborted = 0;
   await new Promise((resolve) => {
-    const req = https.request(`${base}/api/v1/query/stream`, { method: 'POST', rejectUnauthorized: false }, (res) => {
+    const req = https.request(`${base}/api/v1/query/stream`, { method: 'POST', headers: { Cookie: cookie }, rejectUnauthorized: false }, (res) => {
       res.once('data', () => { req.destroy(); setTimeout(resolve, 150); });
     });
     req.on('error', () => {});
@@ -211,7 +218,7 @@ test('a phone that goes away stops the answer on the laptop', async () => {
 });
 
 test('while the engine is not running the phone is told so', async () => {
-  const down = new PhoneServer({ webDir, getApiBase: () => null });
+  const down = new PhoneServer({ webDir, getApiBase: () => null, pairing });
   const port = await down.start({ port: 0, host: '127.0.0.1', tls: TLS });
   const saved = base;
   base = `https://127.0.0.1:${port}`;
@@ -226,10 +233,10 @@ test('while the engine is not running the phone is told so', async () => {
 });
 
 test('switching off closes the door at once, even with an answer still streaming', async () => {
-  const other = new PhoneServer({ webDir, getApiBase: () => backendUrl });
+  const other = new PhoneServer({ webDir, getApiBase: () => backendUrl, pairing });
   const port = await other.start({ port: 0, host: '127.0.0.1', tls: TLS });
   const pending = new Promise((resolve) => {
-    const req = https.request(`https://127.0.0.1:${port}/api/v1/slow`, { rejectUnauthorized: false }, (res) => {
+    const req = https.request(`https://127.0.0.1:${port}/api/v1/slow`, { headers: { Cookie: cookie }, rejectUnauthorized: false }, (res) => {
       res.on('close', resolve);
       res.resume();
     });
@@ -245,4 +252,106 @@ test('switching off closes the door at once, even with an answer still streaming
   await assert.rejects(new Promise((resolve, reject) => {
     https.get(`https://127.0.0.1:${port}/`, { rejectUnauthorized: false }, resolve).on('error', reject);
   }));
+});
+
+// ------------------------------------------------------------------------------------------- pairing (P2)
+
+const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' };
+const otherThan = (code) => (code === '000000' ? '111111' : '000000');
+
+test('a device that is not paired sees only the pairing page', async () => {
+  seen.length = 0;
+  const page = await call('GET', '/', { paired: false });
+  assert.equal(page.status, 200);
+  assert.match(page.body, /Pair this phone with PKOS/);
+  assert.doesNotMatch(page.body, /pkos-api/);
+  assert.match((await call('GET', '/assets/app.js', { paired: false })).body, /Pair this phone/);
+  const api = await call('GET', '/api/v1/me', { paired: false });
+  assert.equal(api.status, 401);
+  assert.equal(JSON.parse(api.body).detail, NOT_PAIRED);
+  assert.equal((await call('POST', '/api/v1/login', { paired: false, headers: FORM, body: 'username=a&password=b' })).status, 401);
+  assert.equal((await call('GET', '/health', { paired: false })).status, 401);
+  const forged = await call('GET', '/api/v1/me', { paired: false, headers: { Cookie: 'pkos_device=abc.def' } });
+  assert.equal(forged.status, 401);
+  assert.equal(seen.length, 0); // nothing reached the backend
+});
+
+test('scanning the QR code pairs the phone, and the code works only once', async () => {
+  const { code } = pairing.newCode();
+  const ua = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36';
+  const scan = await call('GET', `/?pair=${code}`, { paired: false, headers: { 'User-Agent': ua } });
+  assert.equal(scan.status, 303);
+  assert.equal(scan.headers.location, '/');
+  const set = scan.headers['set-cookie'][0];
+  assert.match(set, /^pkos_device=[0-9a-f]{16}\.[\w-]{43}; Path=\/; Max-Age=\d+; HttpOnly; Secure; SameSite=Strict$/);
+  const phoneCookie = set.split(';')[0];
+  assert.equal((await call('GET', '/api/v1/me', { paired: false, headers: { Cookie: phoneCookie } })).status, 200);
+  assert.ok(pairing.list().some((d) => d.name === 'Android phone · Chrome'));
+  const again = await call('GET', `/?pair=${code}`, { paired: false });
+  assert.equal(again.status, 400);
+  assert.match(again.body, /No pairing code is active/);
+  const rescan = await call('GET', `/?pair=${code}`, { paired: false, headers: { Cookie: phoneCookie } });
+  assert.equal(rescan.status, 303); // a paired phone scanning again just opens PKOS
+});
+
+test('typing the 6-digit code pairs too; wrong codes count down and end the code', async () => {
+  const { code } = pairing.newCode();
+  const first = await call('POST', '/pair', { paired: false, headers: FORM, body: `code=${otherThan(code)}` });
+  assert.equal(first.status, 400);
+  assert.match(first.body, /4 tries left/);
+  const typed = await call('POST', '/pair', { paired: false, headers: FORM, body: `code=${code.slice(0, 3)}+${code.slice(3)}` });
+  assert.equal(typed.status, 303); // a space in the middle is fine
+
+  const next = pairing.newCode();
+  for (let i = 0; i < 5; i += 1) await call('POST', '/pair', { paired: false, headers: FORM, body: `code=${otherThan(next.code)}` });
+  assert.equal(pairing.activeCode(), null);
+  assert.equal((await call('POST', '/pair', { paired: false, headers: FORM, body: `code=${next.code}` })).status, 400);
+  pairing.guesses.blocked.clear(); // this test's guesses came from 127.0.0.1, like the others
+});
+
+test('a removed phone is locked out at once, even mid-answer', async () => {
+  const p = pairing.tryCode(pairing.newCode().code, { address: 'x', userAgent: 'iPhone Safari' });
+  const phoneCookie = `pkos_device=${p.cookie}`;
+  const streaming = new Promise((resolve) => {
+    const req = https.request(`${base}/api/v1/slow`, { headers: { Cookie: phoneCookie }, rejectUnauthorized: false }, (res) => {
+      res.on('close', resolve);
+      res.resume();
+    });
+    req.on('error', resolve);
+    req.end();
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(phone.removeDevice(p.device.id), true);
+  await streaming;
+  assert.equal((await call('GET', '/api/v1/me', { paired: false, headers: { Cookie: phoneCookie } })).status, 401);
+});
+
+test('too many wrong passwords from one phone make it wait; other phones are not affected', async () => {
+  const fake = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(req.headers['x-test'] === 'ok' ? 200 : 401, { 'Content-Type': 'application/json' });
+      res.end('{}');
+    });
+  });
+  await new Promise((r) => fake.listen(0, '127.0.0.1', r));
+  const local = new Pairing();
+  const server = new PhoneServer({ webDir, getApiBase: () => `http://127.0.0.1:${fake.address().port}`, pairing: local });
+  const port = await server.start({ port: 0, host: '127.0.0.1', tls: TLS });
+  const saved = base;
+  base = `https://127.0.0.1:${port}`;
+  try {
+    const a = `pkos_device=${local.tryCode(local.newCode().code, { address: '1' }).cookie}`;
+    const b = `pkos_device=${local.tryCode(local.newCode().code, { address: '2' }).cookie}`;
+    const login = (c, extra = {}) => call('POST', '/api/v1/login', { paired: false, headers: { ...FORM, Cookie: c, ...extra }, body: 'u=x&p=y' });
+    for (let i = 0; i < 5; i += 1) assert.equal((await login(a)).status, 401);
+    const blocked = await login(a, { 'X-Test': 'ok' });
+    assert.equal(blocked.status, 429);
+    assert.match(JSON.parse(blocked.body).detail, /Too many wrong passwords from this phone\. Try again in 10 minutes/);
+    assert.equal((await login(b, { 'X-Test': 'ok' })).status, 200);
+  } finally {
+    base = saved;
+    await server.stop();
+    await new Promise((r) => fake.close(r));
+  }
 });

@@ -11,6 +11,7 @@ const { openLog } = require('./process');
 const { BackupManager } = require('./backup');
 const { collectDiagnostics } = require('./diagnostics');
 const phone = require('./phone');
+const { Pairing } = require('./pairing');
 
 const isDev = !app.isPackaged || process.argv.includes('--dev');
 const paths = resolvePaths({ packaged: app.isPackaged && !process.argv.includes('--dev'), resourcesPath: process.resourcesPath });
@@ -30,6 +31,7 @@ let backups = null;
 let quitting = false;
 let config = null;       // config.json as loaded at start (non-secret fields are kept current by updateConfig)
 let phoneServer = null;  // phone access (docs/08_PHONE_ACCESS_PLAN.md)
+let pairing = null;      // paired phones and the current pairing code
 let phoneError = null;
 
 if (!app.requestSingleInstanceLock()) {
@@ -233,6 +235,19 @@ function registerIpc() {
   // ---- phone access
   handle('pkos:phone-status', () => phoneStatus());
   handle('pkos:phone-set', (enabled) => setPhoneAccess(enabled === true));
+  handle('pkos:phone-pair', () => {
+    if (phoneServer && phoneServer.running) pairing.newCode();
+    return phoneStatus();
+  });
+  handle('pkos:phone-cancel-pair', () => {
+    pairing.cancelCode();
+    return phoneStatus();
+  });
+  handle('pkos:phone-remove', (id) => {
+    if (phoneServer) phoneServer.removeDevice(String(id));
+    else pairing.remove(String(id));
+    return phoneStatus();
+  });
 
   // ---- diagnostics
   handle('pkos:copy-diagnostics', () => {
@@ -269,7 +284,7 @@ async function startPhone() {
     const tls = await phoneCertificate();
     if (!phoneServer) {
       phoneServer = new phone.PhoneServer({
-        webDir: paths.webDir, getApiBase: () => (supervisor ? supervisor.backend.url : null), log: desktopLog,
+        webDir: paths.webDir, getApiBase: () => (supervisor ? supervisor.backend.url : null), pairing, log: desktopLog,
       });
     }
     await phoneServer.start({ port: (config.phoneAccess && config.phoneAccess.port) || phone.DEFAULT_PORT, tls });
@@ -282,7 +297,17 @@ async function startPhone() {
 }
 
 async function stopPhone() {
+  if (pairing) pairing.cancelCode();
   if (phoneServer) await phoneServer.stop();
+}
+
+function savePhoneDevices(devices) {
+  config.phoneAccess = { ...(config.phoneAccess || {}), devices };
+  try {
+    updateConfig(paths.configFile, { phoneAccess: config.phoneAccess });
+  } catch (e) {
+    desktopLog.write(`[phone] could not save paired phones: ${e.message}\n`);
+  }
 }
 
 async function phoneStatus() {
@@ -296,13 +321,19 @@ async function phoneStatus() {
     }
   }
   const running = Boolean(phoneServer && phoneServer.running);
+  const code = running && pairing ? pairing.activeCode() : null;
   return {
     enabled,
     running,
     port: running ? phoneServer.port : null,
-    addresses: phone.localAddresses().map((a) => ({ ...a, url: running ? `https://${a.address}:${phoneServer.port}` : null })),
+    addresses: phone.localAddresses().map((a) => {
+      const url = running ? `https://${a.address}:${phoneServer.port}` : null;
+      return { ...a, url, pairUrl: url && code ? `${url}/?pair=${code.code}` : null };
+    }),
     fingerprint,
     error: phoneError,
+    pairing: code ? { code: code.code, expiresAt: new Date(code.expiresAt).toISOString(), triesLeft: code.triesLeft } : null,
+    devices: pairing ? pairing.list() : [],
   };
 }
 
@@ -345,6 +376,7 @@ async function boot() {
   try {
     cfg = loadOrCreateConfig(paths.configFile, safeStorage);
     config = cfg;
+    pairing = new Pairing({ devices: (cfg.phoneAccess && cfg.phoneAccess.devices) || [], save: savePhoneDevices });
   } catch (e) {
     dialog.showErrorBox('PKOS cannot start', e.message);
     app.exit(1);
