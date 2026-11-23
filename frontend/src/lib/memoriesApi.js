@@ -47,3 +47,6 @@ export function guessKind(text, role) {
   if (CONCLUSION.test(text) || role === 'ai') return 'conclusion';
   return 'fact';
 }
+
+/** Keeps a suggestion (optionally edited first): from then on it is used like any other memory. */
+export const confirmMemory = (authFetch, id, changes = {}) => call(authFetch, `/memories/${id}/confirm`, json('POST', changes));

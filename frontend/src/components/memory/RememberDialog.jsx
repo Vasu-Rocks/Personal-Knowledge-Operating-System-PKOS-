@@ -8,7 +8,7 @@ import '../ai/ai.css';
  * "Remember this": a small editor prefilled from a message. Nothing is saved until the user clicks Save
  * (docs/07_MEMORY_PLAN.md 10.1 rule 1). `source` = { conversationId, messageId } links the memory to its chat.
  */
-export default function RememberDialog({ initialText, initialKind = 'fact', source = {}, onClose, onSaved }) {
+export default function RememberDialog({ initialText, initialKind = 'fact', source = {}, onClose, onSaved, save: saveMemory }) {
   const { authFetch } = useAuth();
   const [text, setText] = useState(initialText || '');
   const [kind, setKind] = useState(initialKind);
@@ -21,10 +21,15 @@ export default function RememberDialog({ initialText, initialKind = 'fact', sour
     setSaving(true);
     setError('');
     try {
-      const body = { text: trimmed, kind };
-      if (source.conversationId) body.source_conversation_id = source.conversationId;
-      if (source.conversationId && source.messageId) body.source_message_id = source.messageId;
-      const memory = await addMemory(authFetch, body);
+      let memory;
+      if (saveMemory) {
+        memory = await saveMemory({ text: trimmed, kind }); // e.g. keeping an edited suggestion
+      } else {
+        const body = { text: trimmed, kind };
+        if (source.conversationId) body.source_conversation_id = source.conversationId;
+        if (source.conversationId && source.messageId) body.source_message_id = source.messageId;
+        memory = await addMemory(authFetch, body);
+      }
       if (onSaved) onSaved(memory);
       onClose();
     } catch (err) {

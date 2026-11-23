@@ -100,7 +100,7 @@ def test_a_memory_can_point_at_the_users_own_chat_and_message(make_user):
 
     # Deleting the chat keeps the memory; only the link goes.
     assert owner.client.delete(f"/api/v1/conversations/{cid}", headers=owner.headers).status_code == 204
-    (kept,) = owner.client.get(API, headers=owner.headers).json()["memories"]
+    (kept,) = owner.client.get(f"{API}?status=active", headers=owner.headers).json()["memories"]  # not the suggestion
     assert kept["text"] == "My exam is in February." and kept["source_conversation_id"] is None
 
 

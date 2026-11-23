@@ -130,6 +130,19 @@ def client():
     mp.setattr(routes_query, "update_recap", no_recap)
     from rag.memory import episodic
     mp.setattr(episodic, "embed_text_batch", lambda texts: np.stack([fake_vector(t) for t in texts]))
+
+    # Memory suggestions ask the model to label the user's statements: "answer/keep/explain ..." is a preference,
+    # anything mentioning "today" is not lasting, everything else a fact.
+    from rag.memory import suggest
+
+    async def fake_labels(settings, messages, **kw):
+        statements = [line.split(". ", 1)[1] for line in messages[-1]["content"].splitlines()]
+        kind = lambda s: "none" if "today" in s.lower() else (  # noqa: E731
+            "preference" if s.lower().startswith(("answer", "always", "keep", "explain")) else "fact")
+        return {"labels": [{"n": i, "kind": kind(s)} for i, s in enumerate(statements, 1)]}
+
+    mp.setattr(suggest, "chat_json", fake_labels)
+    mp.setattr(suggest, "embed_text_batch", lambda texts: np.stack([fake_vector(t) for t in texts]))
     with TestClient(main.app) as c:
         yield c
     mp.undo()

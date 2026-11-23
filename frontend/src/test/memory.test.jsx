@@ -162,6 +162,7 @@ function dashboardRoutes(extra = {}) {
     'GET /settings/llm': jsonResponse(200, { provider: 'ollama', saved: true, effective_model: 'llama3.2' }),
     'GET /ollama/models': jsonResponse(200, { models: [] }),
     'GET /conversations': jsonResponse(200, { conversations: [], next_before: null }),
+    'GET /memories': jsonResponse(200, { memories: [] }),
     ...extra,
   };
 }
@@ -262,5 +263,109 @@ describe('memories in the chat', () => {
     await userEvent.click(open);
     expect(await screen.findByText('Which sensors should we order?')).toBeInTheDocument();
     expect(screen.getByTestId('chat-title')).toHaveTextContent('Sensor order');
+  });
+});
+
+// ------------------------------------------------------------------------------------------------ suggestions
+
+const SUGGESTED = (id, text, kind, cid = 'c1') => ({ ...EXAM, memory_id: id, text, kind, origin: 'suggested', status: 'pending',
+  source_conversation_id: cid });
+
+const answerWithSuggestions = (suggestions) => () => streamResponse([
+  sse({ type: 'conversation', conversation_id: 'c1', title: 'Gradient descent' },
+    { type: 'sources', sources: [] }, { type: 'graph', data: { nodes: [], links: [] } }),
+  sse({ type: 'token', content: 'It walks downhill.' }, { type: 'saved', question_id: 'q1', answer_id: 'a1' }),
+  sse({ type: 'suggestions', memories: suggestions }, '[DONE]'),
+]);
+
+describe('memory suggestions in the chat', () => {
+  const BEGINNER = SUGGESTED('s1', 'I am a beginner in machine learning', 'fact');
+  const SIMPLE = SUGGESTED('s2', 'Keep answers simple', 'preference');
+
+  it('shows suggestions after the answer; Keep confirms and Dismiss deletes', async () => {
+    const fetch = routeFetch(dashboardRoutes({
+      'POST /query/stream': answerWithSuggestions([BEGINNER, SIMPLE]),
+      'POST /memories/s1/confirm': jsonResponse(200, { ...BEGINNER, status: 'active' }),
+      'DELETE /memories/s2': NO_CONTENT,
+    }));
+    withAuth(<Dashboard />);
+    await ask('I am a beginner in machine learning, keep it simple. What is gradient descent?');
+    const rows = await screen.findAllByTestId('suggestion');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining('"I am a beginner in machine learning" · about you'),
+      expect.stringContaining('"Keep answers simple" · how to answer'),
+    ]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Keep "I am a beginner in machine learning"' }));
+    await waitFor(() => expect(screen.getAllByTestId('suggestion')).toHaveLength(1));
+    expect(sentTo(fetch, 'POST', '/memories/s1/confirm')).toEqual([{}]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss "Keep answers simple"' }));
+    await waitFor(() => expect(screen.queryByTestId('suggestion')).not.toBeInTheDocument());
+    expect(sentTo(fetch, 'DELETE', '/memories/s2')).toHaveLength(1);
+  });
+
+  it('Edit keeps the suggestion with the changed words', async () => {
+    const fetch = routeFetch(dashboardRoutes({
+      'POST /query/stream': answerWithSuggestions([SIMPLE]),
+      'POST /memories/s2/confirm': (body) => jsonResponse(200, { ...SIMPLE, ...body, status: 'active' }),
+    }));
+    withAuth(<Dashboard />);
+    await ask('Keep it simple. What is gradient descent?');
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit "Keep answers simple"' }));
+    const box = within(screen.getByRole('dialog', { name: /Remember this/ })).getByRole('textbox', { name: 'Memory' });
+    expect(box).toHaveValue('Keep answers simple');
+    await userEvent.clear(box);
+    await userEvent.type(box, 'Keep answers simple, with one example');
+    await userEvent.click(screen.getByRole('button', { name: 'Save memory' }));
+    await waitFor(() => expect(screen.queryByTestId('suggestion')).not.toBeInTheDocument());
+    expect(sentTo(fetch, 'POST', '/memories/s2/confirm')).toEqual([{ text: 'Keep answers simple, with one example', kind: 'preference' }]);
+  });
+
+  it('a suggestion waiting from before appears only in its own chat', async () => {
+    routeFetch(dashboardRoutes({
+      'GET /memories': jsonResponse(200, { memories: [SUGGESTED('s9', 'My exam is on 14 February', 'fact', 'old')] }),
+      'GET /conversations': jsonResponse(200, { conversations: [
+        { conversation_id: 'old', title: 'Exam prep', message_count: 2, created_at: NOW, updated_at: NOW }], next_before: null }),
+      'GET /conversations/old': jsonResponse(200, {
+        conversation_id: 'old', title: 'Exam prep', created_at: NOW, updated_at: NOW,
+        messages: [{ message_id: 'x1', role: 'user', content: 'My exam is on 14 February. What to revise?' }] }),
+    }));
+    withAuth(<Dashboard />);
+    await screen.findByPlaceholderText('Query the unified database...');
+    expect(screen.queryByTestId('suggestion')).not.toBeInTheDocument();   // a new chat
+    await userEvent.click(await screen.findByRole('tab', { name: 'Chats' }));
+    await userEvent.click(await screen.findByText('Exam prep'));
+    expect(await screen.findByTestId('suggestion')).toHaveTextContent('My exam is on 14 February');
+  });
+
+  it('the question box is free again once the answer is saved, even while suggestions are still coming', async () => {
+    let release;
+    const late = new Promise((r) => { release = r; });
+    const encoder = new TextEncoder();
+    const chunks = [
+      sse({ type: 'conversation', conversation_id: 'c1', title: 'T' }, { type: 'sources', sources: [] },
+        { type: 'graph', data: { nodes: [], links: [] } }, { type: 'token', content: 'Done.' },
+        { type: 'saved', question_id: 'q1', answer_id: 'a1' }),
+    ];
+    let i = 0;
+    routeFetch(dashboardRoutes({
+      'POST /query/stream': () => ({
+        ok: true, status: 200, json: () => Promise.reject(new Error('stream')),
+        body: { getReader: () => ({
+          read: async () => {
+            if (i < chunks.length) return { done: false, value: encoder.encode(chunks[i++]) };
+            if (i === chunks.length) { i++; await late; return { done: false, value: encoder.encode(sse('[DONE]')) }; }
+            return { done: true };
+          },
+          cancel: () => Promise.resolve(),
+        }) },
+      }),
+    }));
+    withAuth(<Dashboard />);
+    await ask('I am new here. Hi?');
+    await screen.findByText('Done.');
+    await waitFor(() => expect(screen.queryByText('Synthesizing matrices...')).not.toBeInTheDocument());
+    release();
   });
 });

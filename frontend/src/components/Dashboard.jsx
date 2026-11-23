@@ -12,8 +12,9 @@ import ChatList from './chats/ChatList';
 import useChats from './chats/useChats';
 import { getConversation } from '../lib/conversationsApi';
 import { EMPTY_GRAPH, prepareGraph, toUiMessages } from '../lib/chatView';
-import { guessKind, memoryDraft } from '../lib/memoriesApi';
+import { guessKind, listMemories, memoryDraft } from '../lib/memoriesApi';
 import RememberDialog from './memory/RememberDialog';
+import SuggestionBar from './memory/SuggestionBar';
 import { Send, Terminal, KeySquare, Activity, Bot, Sparkles, Bookmark, Brain, MessagesSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,7 +67,18 @@ export default function Dashboard() {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedMsgId, setSelectedMsgId] = useState(SYS_ID);
   const [rememberMsg, setRememberMsg] = useState(null); // the message "Remember this" was clicked on
+  const [suggestions, setSuggestions] = useState([]);   // pending memories PKOS proposed (shown in their own chat)
+  const streamRef = useRef(0);                          // the newest question's stream; older ones may still be open
   const messagesEndRef = useRef(null);
+
+  const loadSuggestions = useCallback(async () => {
+    try {
+      setSuggestions(await listMemories(authFetch, 'pending'));
+    } catch (err) {
+      console.error('Could not load memory suggestions', err);
+    }
+  }, [authFetch]);
+  const suggestionDone = useCallback((id) => setSuggestions((list) => list.filter((m) => m.memory_id !== id)), []);
 
   // Graph State
   const [graphData, setGraphData] = useState(EMPTY_GRAPH);
@@ -121,9 +133,10 @@ export default function Dashboard() {
     if (restored.current) return;
     restored.current = true;
     chats.refresh();
+    loadSuggestions();
     const last = rememberedChat();
     if (last) openChat(last);
-  }, [chats, openChat]);
+  }, [chats, openChat, loadSuggestions]);
 
   // Cross-Filtering State
   const [activeFocus, setActiveFocus] = useState(null);
@@ -260,6 +273,8 @@ export default function Dashboard() {
     
     setSelectedMsgId(aiMsgId);
     setIsTyping(true);
+    const stream = ++streamRef.current;
+    const finish = () => { if (streamRef.current === stream) setIsTyping(false); };
 
     try {
       // The provider, model and API keys come from the user's saved settings on the server.
@@ -298,6 +313,9 @@ export default function Dashboard() {
               if (m.id === aiMsgId) return { ...m, serverId: parsed.answer_id };
               return m;
             }));
+            finish(); // the answer is complete; memory suggestions may still follow on this stream
+          } else if (parsed.type === 'suggestions') {
+            setSuggestions(prev => [...prev, ...(parsed.memories || []).filter(m => !prev.some(p => p.memory_id === m.memory_id))]);
           } else if (parsed.type === 'sources') {
             setMessages(prev => prev.map(m => 
               m.id === aiMsgId ? { ...m, sources: parsed.sources || [] } : m
@@ -323,7 +341,7 @@ export default function Dashboard() {
         sources: []
       }]);
     } finally {
-      setIsTyping(false);
+      finish();
     }
   };
 
@@ -470,6 +488,10 @@ export default function Dashboard() {
 
         {/* Input Dock */}
         <div style={{ padding: '24px', background: 'linear-gradient(to top, var(--bg-core) 60%, transparent)' }}>
+          <SuggestionBar
+            suggestions={conversationId ? suggestions.filter((m) => m.source_conversation_id === conversationId) : []}
+            onDone={suggestionDone}
+          />
           <form
             onSubmit={handleSend}
             style={{

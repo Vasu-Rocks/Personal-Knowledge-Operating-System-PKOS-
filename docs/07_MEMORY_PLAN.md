@@ -281,10 +281,12 @@ and edit with the same bge-small model as the documents.
   suggestions on/off; shows where a memory came from (a chat, or "added by you") and when it was last used.
 - **"Remember this" on a message:** on any question or answer. Opens a small editor prefilled with the text (cut to
   300 characters) and a kind chosen by PKOS's guess; the user edits and saves. Nothing is saved without that click.
-- **Suggestions (step B5):** after a chat's running summary is updated, PKOS may propose up to 2 memories from the
-  turns it just folded, only facts about the user or stated preferences. They are stored as `pending` and appear as a
-  small "Remember this? Keep / Edit / Dismiss" bar in that chat; pending memories are never used in answers. A dismissed
-  suggestion is deleted. A suggestion that matches an existing memory (distance < 0.15) is dropped.
+- **Suggestions (step B5):** after an answer, PKOS may propose up to 2 memories from what the user said in that
+  question, only facts about the user or stated preferences. They are stored as `pending` and appear as a small
+  "Remember this? Keep / Edit / Dismiss" bar in that chat; pending memories are never used in answers. A dismissed
+  suggestion is deleted. A suggestion that matches an existing memory (distance < 0.15) is dropped. (Changed in B5:
+  the first plan proposed them only after a summary update, which happens once a chat passes 6 turns - too late for
+  "I am a beginner, keep it simple" in the first question. See "Step B5 results".)
 
 ### 10.4 Using memories in an answer
 
@@ -431,6 +433,29 @@ your trip"; 12/15 complete); "clearly about a different subject" fixed that (15/
 topics came as close as 0.42 too, so no cutoff separates them; the rule above handles a wrong chat that gets in.
 Still weak: a broad question ("What did I tell you about my trip?") gets the main points, not every detail (the tea
 ceremony date was left out).
+
+### Step B5 results (2026-11-23, `backend/eval_suggestions.py`, llama3.2 3B on CPU, 3 runs per case)
+
+How it works (`rag/memory/suggest.py`): after an answer is saved, the question is checked against a transparent
+pattern list (first-person statements such as "I am", "my exam is", and answer preferences such as "keep it simple",
+"answer in bullet points"); look-back questions and announcements ("I want to know...", "I have a question...") are
+excluded. Only then are the user's statements cut from their sentences by rule ("I am a beginner in machine learning",
+"Keep answers simple") and the model labels each one fact / preference / none. Only the user's own words are read,
+never the answer or the documents. At most 2 per question, at most 6 waiting per user, duplicates of kept or waiting
+memories dropped. The suggestions arrive as a `suggestions` event after `saved`; the question box is free again at
+`saved`, so nobody waits for them.
+
+| Approach | Sensible suggestion (7 statements) | Ordinary questions with a suggestion |
+|---|---|---|
+| The model writes the memories itself | 12/21 | 3/20 (and invented "I am a software engineer", turned "short bullet points" into "Answer should be detailed") |
+| **Statements cut by rule, the model only labels them** (chosen) | **21/21** | **0/29** (the model was asked for 7 of 15 questions, all labelled "none") |
+
+"I'm preparing for the GATE exam" was first labelled "none" (3/3); naming "what they are preparing for or working on"
+in the fact definition fixed it. In the dev app: an ordinary question gave no suggestion; "I am a beginner in machine
+learning, keep it simple. What is gradient descent?" gave both suggestions 7 s after the answer, with the question box
+already free; the kept preference was used by the next answer (X-Ray "Memories used") and listed on the Memory page as
+"Suggested by PKOS from the chat ...". Limit: a statement made in a form the patterns do not know ("Being new to ML,
+...") is not proposed; the user can still use "Remember this".
 
 ### 10.11 Risks
 

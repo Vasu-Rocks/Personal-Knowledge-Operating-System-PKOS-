@@ -50,9 +50,20 @@ async def list_memories(pool: asyncpg.Pool, user_id: str, status: str | None = N
     return [_memory(r) for r in rows]
 
 
-async def count_memories(pool: asyncpg.Pool, user_id: str) -> int:
+async def count_memories(pool: asyncpg.Pool, user_id: str, status: str | None = None) -> int:
     async with pool.acquire() as conn:
-        return await conn.fetchval("SELECT count(*) FROM memories WHERE user_id = $1", uuid.UUID(user_id))
+        return await conn.fetchval("SELECT count(*) FROM memories WHERE user_id = $1 AND ($2::text IS NULL OR status = $2)",
+                                   uuid.UUID(user_id), status)
+
+
+async def closest_any(pool: asyncpg.Pool, user_id: str, vector: list, max_distance: float) -> dict | None:
+    """The user's memory (kept or suggested) closest to vector, if within max_distance: a duplicate check."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT memory_id, text, (embedding <=> $2) AS distance FROM memories
+               WHERE user_id = $1 AND embedding IS NOT NULL AND (embedding <=> $2) < $3
+               ORDER BY distance LIMIT 1""", uuid.UUID(user_id), vector, max_distance)
+    return {"memory_id": str(row["memory_id"]), "text": row["text"], "distance": float(row["distance"])} if row else None
 
 
 async def find_same_text(pool: asyncpg.Pool, user_id: str, text: str,

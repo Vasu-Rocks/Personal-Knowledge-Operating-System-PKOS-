@@ -18,6 +18,7 @@ from database.llm_settings_db import load_llm_settings
 from database import memories_db
 from rag.memory.episodic import lookback_topic, past_chat_blocks, refers_to_past_chats, update_recap
 from rag.memory.ltm import answers_about_the_user, select_memories
+from rag.memory.suggest import suggest_memories
 from rag.memory.rewrite import rewrite_question
 from rag.memory.stm import build_history
 from rag.memory.summary import update_summary
@@ -105,7 +106,8 @@ async def process_query_stream(
     """
     Answers one question as Server-Sent Events, in this order: conversation (the chat it was saved in), rewrite
     (follow-ups only: the question actually searched), memories (when saved memories were used), sources, graph,
-    token..., saved (the ids of the stored question and answer), [DONE].
+    token..., saved (the ids of the stored question and answer), suggestions (memories PKOS proposes from what the
+    user said about themselves; pending until kept), [DONE].
     The question and the answer are stored in the chat; an answer cut short by the client is stored as 'partial',
     a provider failure as 'error'.
     """
@@ -248,13 +250,25 @@ async def process_query_stream(
             saved = await save_answer(text, status)
             finished = True
             if saved and status == "complete":
-                _summarize_later(pool, settings, active_user_id, conversation_id)
                 try:
                     await memories_db.mark_used(pool, active_user_id, [m["memory_id"] for m in memories])
                 except Exception:
                     logger.exception("Could not record memory use")
             yield _sse({"type": "saved", "question_id": question["message_id"],
                         "answer_id": saved["message_id"] if saved else None})
+            if saved and status == "complete":
+                if config.MEMORY_ENABLED:
+                    # After the answer is complete, so it never waits for this; before the summary update, so the
+                    # two model calls do not queue behind each other. Most questions skip the model entirely.
+                    try:
+                        suggested = await suggest_memories(pool, settings, active_user_id, conversation_id,
+                                                           question["message_id"], user_query)
+                    except Exception:
+                        logger.exception("Memory suggestions failed in chat %s", conversation_id)
+                        suggested = []
+                    if suggested:
+                        yield _sse({"type": "suggestions", "memories": suggested})
+                _summarize_later(pool, settings, active_user_id, conversation_id)
             yield _sse("[DONE]")
         except Exception:
             # A failure while answering (not a disconnect: that is GeneratorExit/cancellation, not an Exception).

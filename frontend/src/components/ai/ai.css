@@ -106,3 +106,6 @@
 .msg-action { font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; background: none; border: none; }
 .msg-action:hover { color: var(--accent-blue); transform: none; }
 .memory-label { margin-top: 8px; font-size: 11px; color: #c4b5fd; display: inline-flex; align-items: center; gap: 4px; }
+.suggestion-bar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.suggestion-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.06); }
+.suggestion-row .msg-action { color: var(--text-secondary); white-space: nowrap; }

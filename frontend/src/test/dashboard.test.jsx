@@ -21,6 +21,7 @@ function routes(llmStatus, extra = {}) {
     'GET /settings/llm': jsonResponse(200, SETTINGS),
     'GET /ollama/models': jsonResponse(200, { models: [] }),
     'GET /conversations': jsonResponse(200, { conversations: [], next_before: null }),
+    'GET /memories': jsonResponse(200, { memories: [] }),
     ...extra,
   };
 }

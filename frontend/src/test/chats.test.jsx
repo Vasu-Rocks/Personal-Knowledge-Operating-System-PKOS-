@@ -36,6 +36,7 @@ function routes(extra = {}) {
     'GET /settings/llm': jsonResponse(200, SETTINGS),
     'GET /ollama/models': jsonResponse(200, { models: [] }),
     'GET /conversations': jsonResponse(200, { conversations: [CHAT_A, CHAT_B], next_before: null }),
+    'GET /memories': jsonResponse(200, { memories: [] }),
     'GET /conversations/aaaa': jsonResponse(200, OPENED_A),
     ...extra,
   };
