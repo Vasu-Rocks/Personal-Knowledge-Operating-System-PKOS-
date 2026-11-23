@@ -73,3 +73,9 @@ def test_citation_examples_come_from_the_context_never_a_fixed_name():
 
     graph_only = build_rag_prompt("q", "", graph)[0]["content"]
     assert "for example: [Graph Entity: Martin Keller]." in graph_only and "[Chunk 1]" not in graph_only
+
+
+def test_summary_requests_are_not_refused_but_missing_answers_still_are():
+    rule = next(line for line in build_rag_prompt("q", "[Chunk 1] body")[0]["content"].splitlines() if line.startswith("1."))
+    assert 'you must output exactly: "I cannot find the answer in your documents."' in rule
+    assert "requests to summarise, explain, list or give an overview" in rule and "are NOT refused" in rule

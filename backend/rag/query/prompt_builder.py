@@ -127,6 +127,11 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
         summary = re.sub(r'={3,}', '', summary).strip()
         summary_block = f"\nEARLIER IN THIS CONVERSATION (summary):\n{summary}\n"
 
+    # Without this sentence llama3.2 refused "Summarise my notes on photosynthesis" with the notes in CONTEXT; with it,
+    # 30/30 summary/explain/direct questions were answered and 15/15 unanswerable ones still refused (2026-11-23).
+    no_answer_rule += (" But requests to summarise, explain, list or give an overview of something the CONTEXT covers "
+                       "are NOT refused: answer them from the CONTEXT.")
+
     # 2. Complete Structurally Bounded Generator Template
     system_content = f"""You are the strict, analytical AI assistant for the PKOS (Personal Knowledge Operating System).
 Your core directive is to answer the user's question ONLY using the provided CONTEXT.

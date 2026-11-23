@@ -383,6 +383,12 @@ the model did so 0/3, even as a MUST rule, so the app shows that label itself: t
 photosynthesis" is refused 3/3 *without* any memory too - the strict "exact answer" rule makes the 3B model refuse
 summary requests.
 
+Fixed right after (rule 1 kept, one sentence added: summarise/explain/list/overview requests about something the
+CONTEXT covers are not refused). On 10 answerable and 5 unanswerable questions, 3 runs each: current rule 26/30
+answered, 15/15 refused; added sentence **30/30 answered, 15/15 refused**. Two rewordings that replaced the rule did
+worse (28/30 and 21/30, one 9/30). With memories: the photosynthesis summary 3/3 answered without a memory and 2/3 with
+an unrelated one (both 0/3 before); the other memory checks unchanged.
+
 ### 10.11 Risks
 
 | Risk | Mitigation |
