@@ -80,7 +80,14 @@ def smoke_test():
     from faster_whisper.utils import get_assets_path
     if not os.path.exists(os.path.join(get_assets_path(), "silero_vad_v6.onnx")):
         raise SystemExit("faster-whisper voice-activity model missing from this build")
-    print(f"smoke test ok: {len(migrations)} migrations, PDF extraction, image OCR, speech engine "
+    # Phone access: the https certificate is made by this executable (--make-cert).
+    import tempfile
+
+    from core.phone_cert import make_certificate
+    with tempfile.TemporaryDirectory() as folder:
+        if "192.168.137.1" not in make_certificate(folder, ["192.168.137.1"])["addresses"]:
+            raise SystemExit("phone access certificate could not be made in this build")
+    print(f"smoke test ok: {len(migrations)} migrations, PDF extraction, image OCR, phone certificate, speech engine "
           f"(ctranslate2 {ctranslate2.__version__}), sentence-transformers {sentence_transformers.__version__}")
 
 

@@ -25,6 +25,8 @@ import ForceGraph2D from 'react-force-graph-2d';
 
 const SETUP_SKIPPED = 'pkos_ai_setup_skipped'; // sessionStorage: skipping lasts until the app restarts
 const SYS_ID = 'sys_init';
+// The backend's answer when nothing fits (routes_query.NO_ANSWER): such an answer did not come from saved memories either.
+const NO_ANSWER = 'I cannot find the answer in your documents.';
 const LAST_CHAT_KEY = 'pkos_last_chat'; // a convenience only: the server decides whose chat it is (404 otherwise)
 const initialMessages = () => [
   { id: SYS_ID, type: 'system', text: 'Secured encrypted channel established. Waiting for input...', sources: [] },
@@ -421,7 +423,7 @@ export default function Dashboard() {
                       {processCitations(msg.text)}
                     </ReactMarkdown>
                     </CitationContext.Provider>
-                    {msg.memoriesOnly && (
+                    {msg.memoriesOnly && !String(msg.text).startsWith(NO_ANSWER) && (
                       <div className="memory-label" data-testid="memory-label">
                         <Brain size={12} /> Answered from your saved memories, not from your documents
                       </div>

@@ -191,6 +191,22 @@ describe('memories in the chat', () => {
     expect(within(used).getByText('how to answer')).toBeInTheDocument();
   });
 
+  it('does not label a refusal as answered from memories (a fact was given but did not answer the question)', async () => {
+    routeFetch(dashboardRoutes({
+      'POST /query/stream': () => streamResponse([
+        sse({ type: 'conversation', conversation_id: 'c1', title: 'Deadlocks' },
+          { type: 'memories', memories: [{ memory_id: 'm-exam', text: EXAM.text, kind: 'fact' }], memories_only: true },
+          { type: 'sources', sources: [] }, { type: 'graph', data: { nodes: [], links: [] } }),
+        sse({ type: 'token', content: 'I cannot find the answer in your documents.' }, '[DONE]'),
+      ]),
+    }));
+    withAuth(<Dashboard />);
+    await ask('What is a deadlock?');
+    await screen.findByText('I cannot find the answer in your documents.');
+    expect(screen.queryByTestId('memory-label')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memories-used')).toHaveTextContent('Memories used (1)'); // still shown in X-Ray
+  });
+
   it('does not label an answer that also had document passages', async () => {
     routeFetch(dashboardRoutes({
       'POST /query/stream': () => streamResponse([

@@ -12,6 +12,7 @@ Source-of-truth docs for PKOS (Personal Knowledge Operating System). Written on 
 | 06 | [Desktop App Plan](06_DESKTOP_APP_PLAN.md) | the Windows app: bundled database and Ollama, packaging, PDF engine, audio/image notes |
 | 07 | [Memory Plan](07_MEMORY_PLAN.md) | saved chats, short-term memory (history, follow-up rewriting, running summary), long-term memory (memories, past chats, suggestions) |
 | 08 | [Phone Access Plan](08_PHONE_ACCESS_PLAN.md) | use PKOS from a phone through the laptop (hotspot or Wi-Fi), pairing, https, phone layout |
+| - | [Using PKOS from your phone](PHONE_ACCESS.md) | user guide: hotspot, pairing, the certificate warning, troubleshooting, first-try checklist |
 
 Status markers used throughout: ✅ implemented · 🟡 partial · ❌ not implemented.
 

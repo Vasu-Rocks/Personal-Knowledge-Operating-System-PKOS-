@@ -50,6 +50,9 @@ API key. Data lives in `%LOCALAPPDATA%\PKOS`.
 - Development: see [`desktop/README.md`](desktop/README.md) (`npm run dev` in `desktop/`).
 - Building the installer: see [`packaging/README.md`](packaging/README.md).
 - Unsigned builds show a SmartScreen warning on install: "More info" → "Run anyway".
+- **Use it from your phone** (0.7.0+): Settings → Phone access lets paired phones on the same network (the laptop's
+  Mobile hotspot or Wi-Fi) open PKOS in their browser, with nothing to install; everything stays on the laptop. See
+  [`docs/PHONE_ACCESS.md`](docs/PHONE_ACCESS.md).
 
 ## Configuration
 All backend settings are environment variables; see `backend/.env.example` (database, Ollama, secret key, CORS origins, token lifetime, graph tuning).

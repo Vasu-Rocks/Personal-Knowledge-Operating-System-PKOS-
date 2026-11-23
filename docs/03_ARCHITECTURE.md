@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | 03 — Architecture |
-| Version | 1.2 (long-term memory: memories, past chats, suggestions, 2026-11-23) |
+| Version | 1.3 (phone access through the desktop app, 2026-11-23) |
 | Related | [01_PRD](01_PRD.md) · [02_SRS](02_SRS.md) · [04_UI_UX](04_UI_UX.md) · [05_Dev_Plan](05_DEVELOPMENT_PLAN.md) |
 
 Status legend: ✅ implemented · 🟡 partial · ❌ planned.
@@ -344,8 +344,8 @@ cd ../frontend && npm install && npm run dev      # http://localhost:3000
 |---|---|---|
 | Data locality | All local with Ollama | Same; cloud providers behind explicit warning |
 | Secrets | JWT key in source; DB creds default `postgres` | `.env`, startup check |
-| Transport | HTTP on localhost | Fine for localhost; TLS via reverse proxy if ever exposed |
-| Network exposure | Depends on uvicorn `--host` | Default `127.0.0.1`; docs warn against `0.0.0.0` |
+| Transport | HTTP on localhost; phone access over HTTPS (PKOS's own certificate, TLS 1.2+) | Same |
+| Network exposure | Backend and database on `127.0.0.1` only; desktop phone access (off by default) is the only listener on the network: paired devices only, allow-listed API paths, login and pairing-code rate limits | Same |
 | Injection (SQL) | Parameterised except summarizer | All parameterised |
 | Prompt injection | `===` stripping, strict system prompt | + label untrusted context, eval tests |
 | Error leakage | `str(e)` in upload/graph 500s | Generic messages + server logs |
@@ -379,6 +379,20 @@ The Electron supervisor starts the services in order, restarts crashed ones (3 p
 an update, and stops everything on quit; the backend exits on its own if Electron dies. Secrets (DB password,
 `PKOS_SECRET_KEY`) are generated on first run and sealed with DPAPI (`safeStorage`) in `config.json`. Backups,
 restore, import from an older PKOS and diagnostics are in Settings → This computer.
+
+**Phone access** (0.7.0, plan: [08_PHONE_ACCESS_PLAN](08_PHONE_ACCESS_PLAN.md), guide: [PHONE_ACCESS](PHONE_ACCESS.md)):
+```
+phone browser ──https──▶ phone server (Electron main, desktop/src/phone.js, 0.0.0.0:47100, off by default)
+                           ├─ not paired → pairing page only (desktop/src/pairing.js: one-time code, device key cookie)
+                           ├─ path not allowed → 403 "This can only be changed on the laptop"
+                           └─ web UI (frontend/dist, marked same-origin) or /api/v1/* forwarded unbuffered
+                                ▼
+                         pkos-api.exe 127.0.0.1:<port> (unchanged; never on the network)
+```
+The certificate is self-signed for the laptop's addresses (`pkos-api.exe --make-cert`, EC P-256, 397 days, renewed when
+the network changes), kept in `<data>\phone\`. Paired phones (hash of a 256-bit device key, name, last use) and the
+switch are in `config.json` (`phoneAccess`). Below 768 px the web UI switches to a phone layout (Chat / Sources /
+Library tabs); served to a phone it shows the AI settings read-only.
 
 ## 12. Monitoring & operations
 Proportionate to a local app — no external telemetry.

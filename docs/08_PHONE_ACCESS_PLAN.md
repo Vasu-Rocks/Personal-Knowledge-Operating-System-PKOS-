@@ -1,6 +1,7 @@
 # 08 - Phone access: use PKOS from a phone through the laptop
 
-Status: planned 2026-11-23 (decisions in section 9). Built step by step, P1 to P5, one step per turn.
+Status: built 2026-11-23 in version 0.7.0 (steps P1 to P5, results under each step; decisions in section 9). User guide:
+[PHONE_ACCESS.md](PHONE_ACCESS.md). Deviation: the manifest and icons are served without pairing (P4).
 
 ## 1. Goal
 
@@ -182,6 +183,27 @@ loaded without cookies. Not checkable here: a real phone camera and microphone, 
 itself (P5 checklist). Chrome does not install a full app (service worker) for a site whose certificate it does not
 trust, so "Add to Home screen" makes a shortcut that opens PKOS full-screen; that is all PKOS needs (it never works
 offline: the laptop does the work).
+
+### Step P5 results (2026-11-23, packaged 0.7.0 on the 0.6.0 test data)
+
+Docs: the user guide [PHONE_ACCESS.md](PHONE_ACCESS.md) (hotspot, pairing, the certificate warning explained, what a
+phone can and cannot do, safety, troubleshooting incl. Windows Firewall, and a checklist for the first try with a real
+phone), README, docs index, architecture 1.3 (phone server, certificate, security table). The packaged smoke test now
+also makes a phone certificate. Installer `PKOS-Setup-0.7.0.exe` (1,047 MB); DLL audit OK.
+
+Packaged app on the 0.6.0 data: a before-update backup was made; the 4 chats and 3 memories (with their kept/waiting
+state) were intact; switching phone access on made the certificate with the packaged engine and listened on 47100 in
+0.6 s, offering only the hotspot and Wi-Fi addresses. A phone-sized browser trusting only that certificate paired
+through the QR link (a wrong code first: "4 tries left"), logged in and got an answer. After a real restart (window
+closed, all processes gone, the phone address no longer answering) phone access came back on by itself, the phone was
+still listed and opened PKOS without pairing again. Removed and switched off afterwards.
+
+Found and fixed: a refusal ("I cannot find the answer in your documents.") still carried the "Answered from your
+saved memories" label when a saved fact had been given to the model but did not answer the question; the label now
+only appears on real answers (the memory stays listed in X-Ray).
+
+Still to do by the user with a real phone: the checklist at the end of the guide (camera, microphone, the certificate
+warning in a real phone browser, Windows Firewall, "Add to Home screen").
 
 ## 7. Risks
 
