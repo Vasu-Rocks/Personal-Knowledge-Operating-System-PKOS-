@@ -1,7 +1,10 @@
 # 07 - Conversation memory: sessions, short-term memory (STM), long-term memory (LTM)
 
 Status: Part A (sessions + STM) built, 2026-11-23, in version 0.5.0 (all 7 steps of section 9; results under steps 4
-and 5). Part B (LTM) is planned in section 10 (decisions Q3-Q5 in section 11) and built step by step, B1 to B6.
+and 5). Part B (LTM) built, 2026-11-23, in version 0.6.0 (steps B1 to B6 of section 10.10, decisions Q3-Q5 in section
+11; results under steps B2 to B6). Part B deviations: suggestions come from each question, not only after a summary
+update (B5); past chats are searched by the question's topic and recaps are worded and embedded differently than first
+planned (B4).
 
 Deviations from the plan as written: users keep their IDs in the import tool, so chats are copied without remapping;
 the diagnostics report holds no database content at all, so there were no chat counts to add; the citation rule's
@@ -456,6 +459,21 @@ learning, keep it simple. What is gradient descent?" gave both suggestions 7 s a
 already free; the kept preference was used by the next answer (X-Ray "Memories used") and listed on the Memory page as
 "Suggested by PKOS from the chat ...". Limit: a statement made in a form the patterns do not know ("Being new to ML,
 ...") is not proposed; the user can still use "Remember this".
+
+### Step B6 results (2026-11-23, packaged 0.6.0 on the 0.5.0 test data, llama3.2)
+
+The import tool now copies memories (kept and waiting, with their embeddings, usage and chat links) and the memory
+settings; chat recaps and `memories_used` come with the chats and messages (test extended). Docs: README, architecture
+(memory section, `/memories` endpoints, stream events, query flow), `.env.example` (memory limits), this plan. The cloud
+notice names memories and past-chat recaps (since B4). Installer `PKOS-Setup-0.6.0.exe` 1,047 MB; DLL audit OK.
+
+Packaged app on the 0.5.0 data: a before-update backup was made, migration 0004 applied, the 0.5.0 chat still listed;
+a memory added on the Memory page answered "When is my exam?" with the label; "I am a beginner in machine learning, keep
+it simple..." gave both suggestions; one kept. After a real restart (window closed, every process gone, app started
+again): the 3 memories with their states, the last chat and its waiting suggestion were back, and the kept preference
+was used in the next answer. A look-back question found the earlier chat; as that chat had only a question and an
+"I cannot find..." answer (no matching documents in this data), the model said it was asked but not discussed -
+correct, if awkwardly worded.
 
 ### 10.11 Risks
 

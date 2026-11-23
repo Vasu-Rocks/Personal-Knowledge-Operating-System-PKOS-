@@ -65,6 +65,18 @@ async def _build_source():
                                VALUES ($1, $2, 2, 'assistant', 'Warmer summers [Chunk 1].', $3::jsonb, 'complete')""",
                             uuid.uuid4(), chat, '[{"chunk_id": %d, "filename": "notes.txt", "page": 1, '
                             '"text": "glaciers melt in the alps", "via": "vector"}]' % chunk_ids[0])
+            # Long-term memory (migration 0004): a kept memory from the chat, a waiting suggestion, the settings and
+            # the chat's recap for past-chat search.
+            vec = [0.05] * 384
+            await c.execute("UPDATE conversations SET recap = 'Melting glaciers. They discussed melt rates.', "
+                            "recap_embedding = $2 WHERE conversation_id = $1", chat, vec)
+            await c.execute("""INSERT INTO memories (memory_id, user_id, text, kind, origin, status, embedding,
+                                   source_conversation_id, use_count)
+                               VALUES ($1, $2, 'My thesis is about alpine glaciers', 'fact', 'manual', 'active',
+                                       $3, $4, 3),
+                                      ($5, $2, 'Keep answers short', 'preference', 'suggested', 'pending', $3::vector,
+                                       $4, 0)""", uuid.uuid4(), alice, vec, chat, uuid.uuid4())
+            await c.execute("INSERT INTO user_memory_settings (user_id, enabled, suggest) VALUES ($1, true, false)", alice)
         return {"alice": alice, "bob": bob, "doc": doc, "chunk_ids": chunk_ids, "chat": chat}
     finally:
         await pool.close()
@@ -125,8 +137,21 @@ def test_import_copies_everything_with_new_chunk_ids_and_is_idempotent(make_user
     assert sorted(body["imported_users"]) == ["old_alice", "old_bob"]
     assert body["rows"] == {**body["rows"], "users": 2, "documents": 1, "document_chunks": 2, "entities": 2,
                             "relationships": 1, "chunk_entity_junction": 2, "relationship_mentions": 1,
-                            "conversations": 1, "messages": 2}
+                            "conversations": 1, "messages": 2, "memories": 2, "user_memory_settings": 1}
     assert "not imported" in body["note"]
+
+    # Memories keep their kind, status, origin, embedding, usage and link to the chat; settings and recaps come too.
+    mems = target_rows("SELECT text, kind, origin, status, use_count, source_conversation_id, "
+                       "embedding IS NOT NULL AS has_vector FROM memories WHERE user_id = $1 ORDER BY text",
+                       source["alice"])
+    assert [tuple(m.values()) for m in mems] == [
+        ("Keep answers short", "preference", "suggested", "pending", 0, source["chat"], True),
+        ("My thesis is about alpine glaciers", "fact", "manual", "active", 3, source["chat"], True)]
+    (settings,) = target_rows("SELECT enabled, suggest FROM user_memory_settings WHERE user_id = $1", source["alice"])
+    assert dict(settings) == {"enabled": True, "suggest": False}
+    (recap,) = target_rows("SELECT recap, recap_embedding IS NOT NULL AS has_vector FROM conversations "
+                           "WHERE conversation_id = $1", source["chat"])
+    assert dict(recap) == {"recap": "Melting glaciers. They discussed melt rates.", "has_vector": True}
 
     # Saved chats come along with their history, searched question, sources snapshot and running summary.
     (chat,) = target_rows("SELECT title, summary, message_count FROM conversations WHERE user_id = $1", source["alice"])

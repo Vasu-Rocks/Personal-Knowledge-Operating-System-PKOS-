@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document | 03 — Architecture |
-| Version | 1.1 (saved chats and conversation memory added, 2026-11-23) |
+| Version | 1.2 (long-term memory: memories, past chats, suggestions, 2026-11-23) |
 | Related | [01_PRD](01_PRD.md) · [02_SRS](02_SRS.md) · [04_UI_UX](04_UI_UX.md) · [05_Dev_Plan](05_DEVELOPMENT_PLAN.md) |
 
 Status legend: ✅ implemented · 🟡 partial · ❌ planned.
@@ -116,6 +116,18 @@ Embed query → **dual-track retrieval in parallel** (`rag/query/retrieval.py::r
 
 **Conversation memory** (`rag/memory`, plan: [07_MEMORY_PLAN](07_MEMORY_PLAN.md)). Every question and answer is saved in a chat (`conversations`, `messages`; migration 0003). For a follow-up, the chat's recent turns (≤6 turns, ≤2,400 chars, citation markers stripped; `stm.py`) and its running summary go into the prompt with a rule that they only explain the question, facts still come from CONTEXT. Before retrieval, `rewrite.py` turns the follow-up into a standalone question (one short JSON call; any failure → the question as typed) and decides whether new search is needed ("shorter, please" reuses the previous passages); that standalone question is what gets embedded and searched. After a complete answer, `summary.py` folds turns that left the window into the running summary (≤1,200 chars) in a background task. `MEMORY_ENABLED=false` switches history, rewriting and summaries off. Evaluation: `backend/eval_followups.py`.
 
+**Long-term memory** (migration 0004; plan section 10). *Memories* (`memories`, `memories_db.py`, `/memories`) are short
+statements the user saved or confirmed: facts, preferences (how to answer) and conclusions, each with a bge embedding.
+Per question `ltm.py` selects the preferences (≤5, always) and the facts/conclusions closest to the standalone question
+(≤3, cosine < 0.40), ≤600 chars, put in an `ABOUT THE USER` section outside CONTEXT; a question about the user may be
+answered from a fact alone (then labelled in the app). *Past chats* (`episodic.py`): every chat keeps a recap (its
+summary, or its first turns) with an embedding; only a question that refers back ("last time", "what did we decide")
+searches them, by its topic alone, and the closest one (cosine < 0.45) becomes an `Earlier chat:` context block.
+*Suggestions* (`suggest.py`): when the user says something about themselves in a question, their statements are cut out
+by rule, the model labels them fact / preference / none, and up to 2 are stored as pending until the user keeps them.
+Users switch memory and suggestions off per account (`user_memory_settings`). Evaluations: `eval_memories.py`,
+`eval_past_chats.py`, `eval_suggestions.py`.
+
 ### 4.5 Graph RAG (`rag/graph`)
 | Module | Role | Trigger |
 |---|---|---|
@@ -168,7 +180,13 @@ Base path `/api/v1` (plus `/health` at root). Auth = `Authorization: Bearer <jwt
 | GET | `/documents` | ✔ | – | `{documents:[{doc_id, filename, timestamp}]}` | ✅ (add status) |
 | POST | `/upload` | ✔ | multipart `file` | `{message, document_id, filename, total_chunks_processed}` | ✅ |
 | DELETE | `/documents/{doc_id}` | ✔ | – | `{message}` | ✅ |
-| POST | `/query/stream` | ✔ | `{query, conversation_id?}` (no id: a new chat is started) | SSE: `conversation` → `rewrite` (follow-ups) → `sources` → `graph` → `token`* → `saved` → `[DONE]`; 404 for another user's chat | ✅ |
+| POST | `/query/stream` | ✔ | `{query, conversation_id?}` (no id: a new chat is started) | SSE: `conversation` → `rewrite` (follow-ups) → `memories` (if any) → `sources` → `graph` → `token`* → `saved` → `suggestions` (if any) → `[DONE]`; 404 for another user's chat | ✅ |
+| GET | `/memories?status=` | ✔ | – | `{memories[{memory_id, text, kind, origin, status, source_conversation_id, source_message_id, source_title, created_at, updated_at, last_used_at, use_count}]}` | ✅ |
+| POST | `/memories` | ✔ | `{text ≤300, kind, source_conversation_id?, source_message_id?}` | the memory (201) / 404 foreign chat / 409 duplicate or 500 reached | ✅ |
+| PATCH | `/memories/{id}` | ✔ | `{text?, kind?}` | the memory (re-embedded) / 404 / 409 | ✅ |
+| POST | `/memories/{id}/confirm` | ✔ | `{text?, kind?}` | keeps a suggestion / 404 / 409 already kept | ✅ |
+| DELETE | `/memories/{id}` · `/memories?confirm=true` | ✔ | – | 204 · `{deleted}` / 404 · 400 without confirm | ✅ |
+| GET · PUT | `/memories/settings` | ✔ | `{enabled?, suggest?}` | `{enabled, suggest}` | ✅ |
 | GET | `/conversations?limit=&before=` | ✔ | – | `{conversations[{conversation_id, title, message_count, created_at, updated_at}], next_before}` | ✅ |
 | POST | `/conversations` | ✔ | `{title?}` | the new chat (201) | ✅ |
 | GET | `/conversations/{id}` | ✔ | – | chat + `messages[{message_id, seq, role, content, standalone_query, needs_search, sources, graph, status}]` / 404 | ✅ |
@@ -195,10 +213,12 @@ SSE event payloads:
 ```json
 {"type":"conversation","conversation_id":"uuid","title":"How many sensors…"}
 {"type":"rewrite","standalone":"When will the 12 sensors arrive?","needs_search":true,"rewritten":true}
-{"type":"sources","sources":[{"filename":"a.pdf","page":3,"text":"…","distance":0.21}]}
+{"type":"memories","memories":[{"memory_id":"uuid","text":"Answer in short bullet points","kind":"preference"}],"memories_only":false}
+{"type":"sources","sources":[{"filename":"a.pdf","page":3,"text":"…","distance":0.21},{"chunk_id":"chat:uuid","conversation_id":"uuid","filename":"Sensor order","page":"2026-11-20","text":"recap…","via":"chat"}]}
 {"type":"graph","data":{"nodes":[{"id":"uuid","name":"FastAPI","category":"TECHNOLOGY","description":"…","isPrimarySeed":true}],"links":[{"source":"uuid","target":"uuid","predicate":"USES","description":"…","weight":2.0}]}}
 {"type":"token","content":"…"}
 {"type":"saved","question_id":"uuid","answer_id":"uuid"}
+{"type":"suggestions","memories":[{"memory_id":"uuid","text":"Keep answers simple","kind":"preference","status":"pending","origin":"suggested"}]}
 [DONE]
 ```
 
@@ -248,8 +268,12 @@ sequenceDiagram
   and Track B
     API->>DB: ≤2 seed entities → ≤20 edges → node metadata
   end
+  opt the question refers to earlier chats
+    API->>DB: closest past-chat recap (by topic) → "Earlier chat" block
+  end
+  API->>DB: preferences + closest saved facts (memory on)
   API->>DB: save the question (new chat if no id)
-  API-->>UI: SSE conversation, rewrite, sources, graph
+  API-->>UI: SSE conversation, rewrite, memories, sources, graph
   alt nothing found
     API-->>UI: token "I cannot find…"
   else
@@ -257,10 +281,15 @@ sequenceDiagram
     LLM-->>API: tokens
     API-->>UI: SSE token…
   end
-  API->>DB: save the answer (complete / partial / error)
-  API-->>UI: SSE saved, [DONE]
+  API->>DB: save the answer (complete / partial / error), memory use counts
+  API-->>UI: SSE saved
+  opt the user said something about themselves
+    API->>LLM: label their statements → pending suggestions
+    API-->>UI: SSE suggestions
+  end
+  API-->>UI: [DONE]
   opt turns left the history window
-    API->>LLM: update running summary (background)
+    API->>LLM: update running summary, then the chat's recap (background)
   end
 ```
 

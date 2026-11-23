@@ -10,7 +10,7 @@ Source-of-truth docs for PKOS (Personal Knowledge Operating System). Written on 
 | 04 | [UI/UX](04_UI_UX.md) | screens, states, components, accessibility, design tokens, copy |
 | 05 | [Development Plan](05_DEVELOPMENT_PLAN.md) | milestones M0–M8, task IDs, dependencies, Definition of Done |
 | 06 | [Desktop App Plan](06_DESKTOP_APP_PLAN.md) | the Windows app: bundled database and Ollama, packaging, PDF engine, audio/image notes |
-| 07 | [Memory Plan](07_MEMORY_PLAN.md) | saved chats, short-term memory (history, follow-up rewriting, running summary), long-term memory (next) |
+| 07 | [Memory Plan](07_MEMORY_PLAN.md) | saved chats, short-term memory (history, follow-up rewriting, running summary), long-term memory (memories, past chats, suggestions) |
 
 Status markers used throughout: ✅ implemented · 🟡 partial · ❌ not implemented.
 

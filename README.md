@@ -2,7 +2,10 @@
 
 Local-first Graph RAG: upload documents, ask questions, get cited answers, and explore the knowledge graph built from them.
 With default settings (Ollama) no document data leaves your machine. Chats are saved, and follow-up questions are
-understood in the context of the conversation (see [`docs/07_MEMORY_PLAN.md`](docs/07_MEMORY_PLAN.md)).
+understood in the context of the conversation. PKOS can also remember what you choose about yourself and how you want
+answers ("I am preparing for the GATE exam", "answer in bullet points"), and finds earlier chats when you ask "what did
+we decide last time?" - every memory is visible, editable and can be switched off (see
+[`docs/07_MEMORY_PLAN.md`](docs/07_MEMORY_PLAN.md)).
 
 Docs: see [`docs/README.md`](docs/README.md) (PRD, SRS, architecture, UI/UX, development plan).
 
