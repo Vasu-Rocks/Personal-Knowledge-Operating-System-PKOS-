@@ -16,6 +16,7 @@ const RENEW_BEFORE_DAYS = 30;
 const LAPTOP_ONLY = 'This can only be changed on the laptop.';
 const NOT_REACHABLE = 'PKOS on the laptop is starting or not reachable. Try again in a moment.';
 const NOT_PAIRED = 'This device is not paired with PKOS. Open the address again to pair it.';
+const PUBLIC_FILES = /^\/(manifest\.webmanifest|favicon\.svg|icons\/[\w.-]+\.png)$/;
 
 // What a phone may call: everyday use (decision P-Q4). Anything not listed - changing the AI model or API keys,
 // downloading or deleting models, importing another database - is refused. New endpoints are refused until added.
@@ -211,6 +212,11 @@ class PhoneServer {
     }
     const isApi = url.pathname === '/api/v1' || url.pathname.startsWith('/api/v1/');
 
+    // The home-screen icon files: browsers fetch the manifest and its icons without cookies, and they hold nothing private.
+    if ((req.method === 'GET' || req.method === 'HEAD') && PUBLIC_FILES.test(url.pathname)) {
+      return this.serveFile(req, res, url.pathname, { fallback: false });
+    }
+
     // Pairing: a device that is not paired gets the pairing page and nothing else (decision P-Q1).
     if (url.pathname === '/pair' && req.method === 'POST') return this.pair(req, res, null);
     const device = this.pairing.deviceFor(req.headers.cookie);
@@ -308,7 +314,7 @@ class PhoneServer {
     req.pipe(upstream);
   }
 
-  serveFile(req, res, pathname) {
+  serveFile(req, res, pathname, { fallback = true } = {}) {
     let rel;
     try {
       rel = decodeURIComponent(pathname);
@@ -318,7 +324,10 @@ class PhoneServer {
     if (rel === '/' || rel === '') rel = '/index.html';
     let file = path.resolve(this.webDir, `.${rel}`);
     if (!file.startsWith(this.webDir + path.sep)) return sendJson(res, 403, { detail: 'Forbidden.' });
-    if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(this.webDir, 'index.html');
+    if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+      if (!fallback) return sendJson(res, 404, { detail: 'Not found.' });
+      file = path.join(this.webDir, 'index.html');
+    }
     const isIndex = path.basename(file) === 'index.html';
     let body;
     try {
@@ -333,7 +342,8 @@ class PhoneServer {
     res.writeHead(200, {
       'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'Content-Length': body.length,
-      'Cache-Control': isIndex ? 'no-store' : 'public, max-age=31536000, immutable',
+      // Built assets have a content hash in their name; the manifest and icons do not and must be checked again.
+      'Cache-Control': isIndex ? 'no-store' : (rel.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'),
       ...PAGE_HEADERS,
     });
     res.end(req.method === 'HEAD' ? undefined : body);

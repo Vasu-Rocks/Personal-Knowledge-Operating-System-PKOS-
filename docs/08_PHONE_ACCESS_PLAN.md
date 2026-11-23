@@ -161,6 +161,28 @@ In the phone-sized browser through the hotspot address: logged in, the page exac
 sideways scrolling), an answer with a "Chunk 1" badge, tapping it opened Sources with the passage, Library listed the
 document, Settings fit the screen with the AI model read-only and no Save. The laptop layout was unchanged.
 
+### Step P4 results (2026-11-23, dev app, phone-sized browser)
+
+Built: the ⌄ menu on a phone offers "Take a photo of notes" (`capture="environment"`: straight to the back camera),
+"Choose a photo of notes" (gallery) and "Ask by voice"; a camera photo without a file extension is named by its type;
+HEIC photos get an explanation instead of a failure on the laptop; voice says why it is unavailable (not https, or a
+browser that cannot record) instead of failing, and a blocked microphone points at the browser's site settings, not
+Windows; "tap the square to stop". Home screen: `manifest.webmanifest` (standalone, PKOS colours), 192/512 px icons
+and an Apple touch icon made from the desktop icon, theme and Apple meta tags, safe-area padding below an iPhone's
+status bar. The phone server serves the manifest and icons without pairing (browsers fetch them without cookies; they
+hold nothing private), a missing one answers 404 rather than the app, and only hashed `/assets/` files are cached for
+a year. Tests: 5 frontend (82 -> 87), 1 desktop (50).
+
+Through the phone server with PKOS's certificate accepted: the page is a secure context (so the microphone is
+allowed); recording through the real menu with a fake microphone (a tone) was sent and answered "No speech was heard";
+a spoken question made with Windows text-to-speech came back as "Who visits the Glacier station every Tuesday?"; a
+photo of notes given to the camera input with no extension filled the question box ("My e exam is on 14 February
+Revise paging and deadlocks" - the OCR slip is the model's); the manifest (PKOS, standalone, 2 icons) and the icon
+loaded without cookies. Not checkable here: a real phone camera and microphone, and the "Add to Home screen" prompt
+itself (P5 checklist). Chrome does not install a full app (service worker) for a site whose certificate it does not
+trust, so "Add to Home screen" makes a shortcut that opens PKOS full-screen; that is all PKOS needs (it never works
+offline: the laptop does the work).
+
 ## 7. Risks
 
 | Risk | Mitigation |

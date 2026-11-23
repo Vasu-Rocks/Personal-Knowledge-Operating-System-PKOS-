@@ -251,3 +251,4 @@ body, html, #root { height: 100dvh; }
   body .ai-row { flex-wrap: wrap; }
   body .ai-row > .ai-input { flex-basis: 100%; }      /* a text field gets its own line on a phone */
 }
+.os-shell.phone { padding-top: env(safe-area-inset-top); }  /* iPhone home-screen app: below the status bar */

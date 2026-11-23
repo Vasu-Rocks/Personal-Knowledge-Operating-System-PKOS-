@@ -355,3 +355,22 @@ test('too many wrong passwords from one phone make it wait; other phones are not
     await new Promise((r) => fake.close(r));
   }
 });
+
+// ------------------------------------------------------------------------------------------- home-screen icon (P4)
+
+test('the manifest and icons are served without pairing; nothing else is, and missing ones are not the app', async () => {
+  fs.writeFileSync(path.join(webDir, 'manifest.webmanifest'), '{"name":"PKOS"}');
+  fs.mkdirSync(path.join(webDir, 'icons'), { recursive: true });
+  fs.writeFileSync(path.join(webDir, 'icons', 'pkos-192.png'), 'png');
+  const manifest = await call('GET', '/manifest.webmanifest', { paired: false });
+  assert.equal(manifest.status, 200);
+  assert.equal(manifest.body, '{"name":"PKOS"}');
+  assert.equal(manifest.headers['content-type'], 'application/manifest+json');
+  assert.equal(manifest.headers['cache-control'], 'no-cache');
+  assert.equal((await call('GET', '/icons/pkos-192.png', { paired: false })).body, 'png');
+  const missing = await call('GET', '/icons/nope.png', { paired: false });
+  assert.equal(missing.status, 404);
+  assert.doesNotMatch(missing.body, /pkos-api/);
+  assert.match((await call('GET', '/icons/../index.html', { paired: false })).body, /Pair this phone/);
+  assert.equal((await call('GET', '/assets/app.js')).headers['cache-control'], 'public, max-age=31536000, immutable');
+});
