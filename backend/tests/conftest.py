@@ -122,6 +122,14 @@ def client():
         return False
 
     mp.setattr(routes_query, "update_summary", no_summary)
+
+    # Recaps for past-chat search are refreshed in the same background task; tests that need them patch it back in.
+    async def no_recap(pool, user_id, conversation_id):
+        return False
+
+    mp.setattr(routes_query, "update_recap", no_recap)
+    from rag.memory import episodic
+    mp.setattr(episodic, "embed_text_batch", lambda texts: np.stack([fake_vector(t) for t in texts]))
     with TestClient(main.app) as c:
         yield c
     mp.undo()

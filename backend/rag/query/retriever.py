@@ -2,6 +2,8 @@ from core.config import CONTEXT_MAX_CHARS
 
 # Appears in the header of community-summary blocks; the prompt builder looks for it to adjust its rules.
 COMMUNITY_MARKER = "generated overview of a group of related concepts"
+# Header of a past-chat block (rag/memory/episodic.py); the prompt builder adds a rule for them when present.
+CHAT_MARKER = "Earlier chat:"
 
 
 def format_context_blocks(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS) -> tuple[str, list[dict]]:
@@ -18,6 +20,8 @@ def format_context_blocks(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS
     for chunk in chunks:
         if chunk.get("via") == "community":
             header = f"[Chunk {len(used) + 1}] {chunk['filename']} ({COMMUNITY_MARKER})"
+        elif chunk.get("via") == "chat":
+            header = f"[Chunk {len(used) + 1}] {CHAT_MARKER} \"{chunk['filename']}\" ({chunk['page']})"
         else:
             origin = " (found via the knowledge graph)" if chunk.get("via") == "graph" else ""
             header = f"[Chunk {len(used) + 1}] Source: {chunk['filename']} (Page {chunk['page']}){origin}"

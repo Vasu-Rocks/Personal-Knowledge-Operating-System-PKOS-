@@ -62,6 +62,11 @@ MEMORY_MAX_FACTS = int(os.getenv("MEMORY_MAX_FACTS", "3"))
 # document questions at 0.50.
 MEMORY_MAX_DISTANCE = float(os.getenv("MEMORY_MAX_DISTANCE", "0.40"))
 MEMORY_MAX_CHARS = int(os.getenv("MEMORY_MAX_CHARS", "600"))
+# Past chats (episodic memory, 10.5): searched only when a question refers to earlier conversations. Measured with
+# backend/eval_past_chats.py: the closest chat was the right one 8/8; at 0.45 all 8 are within the cutoff, and taking
+# only the closest keeps wrong chats out (2 got in when 2 were allowed; 0.40 missed 1 of 8).
+PAST_CHATS_MAX = int(os.getenv("PAST_CHATS_MAX", "1"))
+PAST_CHATS_MAX_DISTANCE = float(os.getenv("PAST_CHATS_MAX_DISTANCE", "0.45"))
 # Follow-ups are rewritten into standalone questions before search; after this many seconds the question as typed is used.
 # Generous on purpose: a local model that has to load first takes ~8 s, and that load is needed for the answer anyway.
 REWRITE_TIMEOUT = float(os.getenv("REWRITE_TIMEOUT", "20"))

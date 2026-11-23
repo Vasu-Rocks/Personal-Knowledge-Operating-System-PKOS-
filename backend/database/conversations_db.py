@@ -148,3 +148,26 @@ async def save_summary(pool: asyncpg.Pool, user_id: str, conversation_id: uuid.U
                WHERE conversation_id = $1 AND user_id = $2 AND summary_upto_seq = $5 AND $4 > $5""",
             conversation_id, uuid.UUID(user_id), summary, upto_seq, expected_upto_seq)
     return result.endswith(" 1")
+
+
+async def save_recap(pool: asyncpg.Pool, user_id: str, conversation_id: uuid.UUID, recap: str, embedding) -> bool:
+    """Stores the chat's recap and its embedding (past-chat search, docs/07_MEMORY_PLAN.md 10.5)."""
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE conversations SET recap = $3, recap_embedding = $4 WHERE conversation_id = $1 AND user_id = $2",
+            conversation_id, uuid.UUID(user_id), recap, embedding)
+    return result.endswith(" 1")
+
+
+async def search_past_chats(pool: asyncpg.Pool, user_id: str, query_vector: list, *, exclude: uuid.UUID | None,
+                            limit: int, max_distance: float) -> list[dict]:
+    """The user's other chats whose recap is closest to the question, within max_distance (cosine)."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT conversation_id, title, recap, updated_at, (recap_embedding <=> $2) AS distance FROM conversations
+               WHERE user_id = $1 AND recap_embedding IS NOT NULL AND ($3::uuid IS NULL OR conversation_id <> $3)
+                 AND (recap_embedding <=> $2) < $4
+               ORDER BY distance LIMIT $5""",
+            uuid.UUID(user_id), query_vector, exclude, max_distance, limit)
+    return [{"conversation_id": str(r["conversation_id"]), "title": r["title"], "recap": r["recap"],
+             "updated_at": r["updated_at"].isoformat(), "distance": float(r["distance"])} for r in rows]

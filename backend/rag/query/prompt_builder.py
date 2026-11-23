@@ -1,6 +1,6 @@
 import re
 from core.config import GRAPH_CONTEXT_MAX_CHARS
-from rag.query.retriever import COMMUNITY_MARKER
+from rag.query.retriever import CHAT_MARKER, COMMUNITY_MARKER
 
 MEMORY_LABELS = {"preference": "Preference", "fact": "Fact", "conclusion": "Kept conclusion"}
 
@@ -126,6 +126,14 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
     if summary:
         summary = re.sub(r'={3,}', '', summary).strip()
         summary_block = f"\nEARLIER IN THIS CONVERSATION (summary):\n{summary}\n"
+    # Past chats (episodic memory): blocks that record earlier conversations, not documents.
+    if CHAT_MARKER in retrieved_context:
+        number = 5 + bool(overview_rule) + bool(memory_rule)
+        memory_rule += (
+            f"{number}. Blocks marked \"{CHAT_MARKER}\" are recaps of the user's earlier conversations with you. Use "
+            "them for questions about what was discussed or decided before, and cite them like other blocks; they "
+            "record what was said then, not what the documents say.\n"
+        )
 
     # Without this sentence llama3.2 refused "Summarise my notes on photosynthesis" with the notes in CONTEXT; with it,
     # 30/30 summary/explain/direct questions were answered and 15/15 unanswerable ones still refused (2026-11-23).

@@ -389,6 +389,23 @@ answered, 15/15 refused; added sentence **30/30 answered, 15/15 refused**. Two r
 worse (28/30 and 21/30, one 9/30). With memories: the photosynthesis summary 3/3 answered without a memory and 2/3 with
 an unrelated one (both 0/3 before); the other memory checks unchanged.
 
+### Step B3 results (2026-11-23, `backend/eval_past_chats.py`, bge-small)
+
+6 realistic chat recaps (built like the app builds them), 8 look-back questions ("What did we decide about the sensors
+last time?", "You told me something about a visa, what was it?" ...): the closest chat was the right one 8/8.
+
+| cutoff | right chat found | wrong chats also within the cutoff (2 allowed) |
+|---|---|---|
+| 0.35 | 7/8 | 0 |
+| 0.40 | 7/8 | 0 |
+| **0.45** (chosen) | **8/8** | 2 |
+| 0.50 | 8/8 | 6 |
+
+Chosen: 0.45 with only the closest chat (`PAST_CHATS_MAX` 1; the plan said 1-2), which gives 8/8 found and no wrong
+chat in this test. Trigger words: 8/8 look-back questions recognised, 0/15 ordinary questions (from the other
+evaluations) triggered a past-chat search. Not yet checked with the language model: whether llama3.2 answers well from a
+recap (B4 checks it in the app).
+
 ### 10.11 Risks
 
 | Risk | Mitigation |
