@@ -1,7 +1,7 @@
 # 07 - Conversation memory: sessions, short-term memory (STM), long-term memory (LTM)
 
 Status: Part A (sessions + STM) built, 2026-11-23, in version 0.5.0 (all 7 steps of section 9; results under steps 4
-and 5). Part B (LTM) is next and is outlined in section 10; Part A's schema and code leave room for it.
+and 5). Part B (LTM) is planned in section 10 (decisions Q3-Q5 in section 11) and built step by step, B1 to B6.
 
 Deviations from the plan as written: users keep their IDs in the import tool, so chats are copied without remapping;
 the diagnostics report holds no database content at all, so there were no chat counts to add; the citation rule's
@@ -218,26 +218,171 @@ asking for a summary rather than a transcript, a target of 80% of the cap and ol
 "shorten" call before any cut), the 4 rounds gave 366 / 511 / 678 / 814 characters, all 9 checked facts kept (names,
 amounts, dates), nothing invented, 3-4 s per round.
 
-## 10. Part B - long-term memory (outline, built after Part A)
+## 10. Part B - long-term memory (plan, 2026-11-23)
 
-- **Table `memories`:** `memory_id`, `user_id`, `text` (<= 300 characters), `embedding vector(384)`, `kind`
-  (`fact` about the user | `preference` | `conclusion` from a chat), `origin` (`manual` | `suggested`), `source_conversation_id`,
-  `created_at`, `updated_at`, `last_used_at`, `use_count`.
-- **Adding memories:** a "Remember this" action on any message, and a Memory page in Settings to add, edit, delete and
-  switch memory off. Later: after a chat the AI *suggests* memories and the user confirms each one - never silent writes.
-- **Using memories:** per question, the 3 closest memories within a distance limit (pgvector, same embedder), shown to the
-  model under "ABOUT THE USER" in the system message - separate from CONTEXT and never citable as a document - and listed
-  in the X-Ray panel so the user sees which memories were used.
-- **Episodic memory:** each conversation's running summary is embedded, so "what did we conclude about X last week?"
-  can find the right past chat.
-- **Why Part A prepares it:** summaries already exist per conversation; memories hang off `user_id` and optionally a
-  conversation; the prompt builder already has a separate slot for non-document context.
+### 10.1 Goal and rules
+
+PKOS remembers what matters across chats, and the user stays in control of every word it remembers.
+
+Two kinds of long-term memory:
+- **Memories** - short statements about the user: facts ("I am preparing for the GATE exam in February"), preferences
+  ("answer in short bullet points"), and conclusions the user chose to keep ("we decided to order the Campbell sensors").
+- **Past chats (episodic memory)** - every chat gets a short recap with an embedding, so "what did we conclude about
+  the sensors last week?" can find the right earlier chat.
+
+Rules that hold in every step:
+1. **Nothing is remembered silently.** A memory exists only because the user added it, or confirmed a suggestion.
+2. **Memories are visible and editable.** One page lists all of them; each can be edited, deleted, or all switched off.
+3. **Documents stay the source of facts about the documents.** Memories tell the model about the user and how to
+   answer. A question about the user themselves ("when is my exam?") may be answered from a memory, and the answer then
+   says it comes from their saved memories (decision Q5). Memories are shown to the model in their own section, never
+   as a document passage, and are never cited as one.
+4. **The user sees what was used.** Every answer lists the memories and past chats it was given (X-Ray panel).
+5. **One user's memories never reach another user** (every query scoped by user_id, tested like documents and chats).
+
+### 10.2 Data model (migration `0004_memories.sql`)
+
+```sql
+CREATE TABLE memories (
+    memory_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    text VARCHAR(300) NOT NULL,
+    kind VARCHAR(12) NOT NULL CHECK (kind IN ('fact', 'preference', 'conclusion')),
+    origin VARCHAR(10) NOT NULL CHECK (origin IN ('manual', 'suggested')),
+    status VARCHAR(10) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending')),  -- pending = suggestion
+    embedding vector(384),
+    source_conversation_id UUID REFERENCES conversations(conversation_id) ON DELETE SET NULL,
+    source_message_id UUID REFERENCES messages(message_id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ,
+    use_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX memories_user_idx ON memories(user_id, status);
+
+CREATE TABLE user_memory_settings (
+    user_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL DEFAULT true,          -- use memories and past chats in answers
+    suggest BOOLEAN NOT NULL DEFAULT true           -- let PKOS propose memories (still confirmed one by one)
+);
+
+ALTER TABLE conversations ADD COLUMN recap TEXT;               -- summary, or the turns of a short chat
+ALTER TABLE conversations ADD COLUMN recap_embedding vector(384);
+ALTER TABLE messages ADD COLUMN memories_used JSONB;            -- assistant: [{memory_id, text}] given to the model
+```
+
+Notes: a few hundred memories per user at most, so a sequential scan filtered by user_id is fast and no vector index is
+needed. Deleting a chat keeps memories made from it (the link becomes empty). The embedding is computed on every save
+and edit with the same bge-small model as the documents.
+
+### 10.3 Adding memories
+
+- **Memory page (Settings):** list grouped by kind, add, edit, delete, delete all, switch memory on/off, switch
+  suggestions on/off; shows where a memory came from (a chat, or "added by you") and when it was last used.
+- **"Remember this" on a message:** on any question or answer. Opens a small editor prefilled with the text (cut to
+  300 characters) and a kind chosen by PKOS's guess; the user edits and saves. Nothing is saved without that click.
+- **Suggestions (step B5):** after a chat's running summary is updated, PKOS may propose up to 2 memories from the
+  turns it just folded, only facts about the user or stated preferences. They are stored as `pending` and appear as a
+  small "Remember this? Keep / Edit / Dismiss" bar in that chat; pending memories are never used in answers. A dismissed
+  suggestion is deleted. A suggestion that matches an existing memory (distance < 0.15) is dropped.
+
+### 10.4 Using memories in an answer
+
+Per question, after the follow-up rewrite (the standalone question is the search text):
+1. **Preferences are always included** (they are instructions about the answers), newest first, at most 5.
+2. **Facts and conclusions by similarity:** the 3 closest active ones with cosine distance < 0.45 (tuned in B2 with an
+   evaluation, like the 0.35 cutoff for passages).
+3. Together at most 600 characters; whatever is used gets `last_used_at` / `use_count` updated and is stored on the
+   answer (`memories_used`).
+4. In the prompt: a section in the system message, *outside* CONTEXT:
+   `ABOUT THE USER (notes the user saved; use them to understand the question and to shape the answer; a question about
+   the user may be answered from them, saying "from your saved memories"; never a source of facts about the documents,
+   never cited as [Chunk N])`. Rule 1 ("I cannot find the answer in your documents") is reworded to allow that case.
+   The shortcut that answers "I cannot find..." without calling the model when no passage is found now applies only
+   when no memory was selected either.
+5. A new SSE event `{"type":"memories","memories":[{memory_id, text, kind}]}` before `sources`; the X-Ray panel lists
+   them under "Memories used".
+
+### 10.5 Past chats (episodic memory, step B3)
+
+- **Recap per chat:** the running summary when there is one, otherwise the chat's first turns (questions and the
+  start of the answers, at most 800 characters), plus the title. Re-embedded after every complete answer (embedding
+  only, no model call, ~20 ms). The chat being asked in is never its own past chat.
+- **When it is searched:** only when the question refers to earlier conversations ("last time", "we discussed",
+  "earlier chat", "what did we conclude", "previously", "you told me" ... a transparent keyword list like the one for
+  broad questions), or when the rewrite marks it. Ordinary questions never pull in old chats, so they cannot add noise.
+- **How it is used:** the best 1-2 past chats under a distance limit become context blocks labelled
+  `[Chunk N] Earlier chat: "<title>" (<date>)`, inside the normal 6000-character CONTEXT budget, so they can be cited and
+  appear in the sources list (shown as a chat, clicking opens that chat). The prompt rule for them: they record what was
+  said before, not what the documents say.
+
+### 10.6 Prompt budget (llama3.2, num_ctx 4096)
+
+rules ~1200 + documents (and past chats) 6000 + graph 1800 + history 2400 + summary 1200 + memories 600 = 13,200
+characters, about 3,300 tokens, plus a 512-token answer: ~3,810 of 4,096. Past chats take their room from the documents
+budget, not on top of it. If real prompts run long, history is trimmed first (it is the most redundant with the summary).
+
+### 10.7 Backend changes
+
+New: `database/migrations/0004_memories.sql`, `database/memories_db.py` (CRUD, similarity search, usage update,
+settings), `api/routes_memories.py` (`GET/POST /memories`, `PATCH/DELETE /memories/{id}`, `DELETE /memories`,
+`POST /memories/{id}/confirm`, `GET/PUT /memories/settings`), `rag/memory/ltm.py` (select memories for a question,
+format the prompt section), `rag/memory/episodic.py` (recap building, past-chat trigger and search),
+`rag/memory/suggest.py` (B5), `eval_memories.py`.
+
+Changed: `routes_query.py` (memories and past chats per question, `memories` event, `memories_used` saved),
+`prompt_builder.py` (ABOUT THE USER section and the past-chat rule), `summary.py` (refresh the recap, then suggest),
+`import_pkos.py` (memories and settings), `core/config.py` (limits).
+
+### 10.8 Frontend changes
+
+New: `components/memory/MemoryPage.jsx` (in Settings), `components/memory/RememberDialog.jsx`,
+`components/memory/SuggestionBar.jsx` (B5), `lib/memoriesApi.js`.
+Changed: `Dashboard.jsx` ("Remember this" on messages, `memories` event, X-Ray "Memories used", past-chat sources
+that open the chat), `SettingsView.jsx` (Memory section), `CloudKeyForm.jsx` (memories are sent to a cloud provider too).
+
+### 10.9 Privacy and safety
+
+- Memories live in the local database, in backups and in the import tool, like chats.
+- With a cloud provider the memories used for a question are sent with it; the notice says so.
+- Switching memory off stops their use at once and keeps them; "delete all" removes them (with a confirmation).
+- A memory text is limited to 300 characters and cleaned like a question (no prompt fences such as `===`).
+- Suggestions only come from the user's own chats and are inert until confirmed.
+
+### 10.10 Work plan, step by step (one step per turn)
+
+| Step | Work | Done when |
+|---|---|---|
+| B1 | Migration 0004, `memories_db.py`, `/memories` API (CRUD, confirm, settings), embedding on save | API tests incl. isolation between users, 300-character limit, edit re-embeds, delete all |
+| B2 | Use memories in answers: selection, prompt section, `memories` event, `memories_used`, usage counts, on/off | Unit and API tests; evaluation with the real embedder (right memory chosen, unrelated ones left out, cutoff tuned); a preference followed by llama3.2 |
+| B3 | Past chats: recap and embedding, trigger words, past-chat context blocks | Tests; evaluation: "what did we conclude about X" finds the right chat, ordinary questions pull in none |
+| B4 | Frontend: Memory page, "Remember this", X-Ray "Memories used", past-chat sources | Component tests; checked in the dev app |
+| B5 | Suggestions: proposed after summary updates, pending until confirmed, suggestion bar | Tests; quality check on llama3.2 (no suggestions from ordinary document questions, sensible ones from "I am a beginner, keep it simple") |
+| B6 | Import tool, docs, cloud notice, version 0.6.0, packaged app check | Packaged app: memories survive a restart and an upgrade from 0.5.0 data |
+
+### 10.11 Risks
+
+| Risk | Mitigation |
+|---|---|
+| A wrong or outdated memory steers answers | Visible "Memories used" per answer; easy edit/delete; never silent writes |
+| Memories treated as document facts | Separate section, explicit rule, not citable; tested in the prompt |
+| Irrelevant memories add noise | Similarity cutoff tuned by evaluation; at most 3 facts; preferences capped at 5 |
+| Old chats pulled into unrelated questions | Past chats searched only on explicit references |
+| Small models suggest junk memories | Only facts and preferences the user states about themselves (never document content), at most 2 per update, pending until confirmed, duplicates dropped, can be switched off |
+| Prompt overflow | Fixed budgets (10.6); past chats inside the documents budget |
 
 ## 11. Decisions (2026-11-23)
 
 - Q1 Chat list: a **"Chats" tab in the left panel**, next to the documents, with a "New chat" button.
 - Q2 Rewriting: **every follow-up** is rewritten when the chat has history (the first question never is). Reliability
   over ~1-3 s of extra time on a local model; "Searched for" keeps it visible.
+
+Part B (2026-11-23):
+- Q3 Suggestions: **yes** - PKOS proposes at most 2 memories at a time from facts and preferences the user states about
+  themselves; each waits for Keep / Edit / Dismiss; can be switched off (step B5 stays).
+- Q4 Past chats: **only when the question refers to earlier conversations**; ordinary questions never pull in old chats.
+- Q5 Memory facts: **may answer questions about the user**, and the answer says it came from saved memories; questions
+  about documents still need the documents.
 
 ## 12. Risks
 
