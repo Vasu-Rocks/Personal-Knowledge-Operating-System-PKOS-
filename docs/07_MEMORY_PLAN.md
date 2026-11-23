@@ -406,6 +406,32 @@ chat in this test. Trigger words: 8/8 look-back questions recognised, 0/15 ordin
 evaluations) triggered a past-chat search. Not yet checked with the language model: whether llama3.2 answers well from a
 recap (B4 checks it in the app).
 
+### Step B4 results (2026-11-23, dev app with llama3.2 3B on CPU, bge-small)
+
+The screens: a Memory section in Settings (grouped list, add, edit, delete, delete all with a confirmation, the two
+switches, where a memory came from and when it was last used); "Remember this" under every question and answer (an
+editor prefilled without citations, cut to 300 characters, with PKOS's guess at the kind; nothing is saved before the
+click); "Memories used" in the X-Ray panel; the label "Answered from your saved memories, not from your documents"
+(from `memories_only`, and for stored answers with a fact and no passage or graph); past chats in the sources list as
+"Earlier chat: <title>" with an "Open chat" button. In the dev app: "When is my exam?" was answered from the saved fact
+with the label, the bullet-point preference was followed, and "What did we decide about the sensors last time?" found
+the earlier chat, which opened from the sources list.
+
+Checking answers from a recap with no document behind it found three problems, all fixed in this step:
+
+| Problem (llama3.2, 3 runs per case) | Fix | Before | After |
+|---|---|---|---|
+| Answers began with a copy of the block header (`Earlier chat: "…" (date)`) | Rule: answer in your own words, with the details; never copy the header | 15/15 copied | 0/15 |
+| Details left out ("…about Himalayan glacier." without Dr. Rao) | Recap turns labelled "The user said / You answered"; "I cannot find…" answers and a title that only repeats the first question left out | 9/15 complete | 15/15 (5 chats) |
+| "Remind me what we discussed about my thesis" got the Kyoto chat (0.379 vs 0.436): the look-back wording outweighed the topic, and an earlier look-back chat matched every later look-back question | Search by the topic alone (`lookback_topic`: "my thesis"), recaps embedded without their labels, look-back turns left out of recaps | 8/10 right chat first | 10/10 (`eval_past_chats.py`: 9/9) |
+| A wrong earlier chat under the cutoff ("wedding venue" given the sensors chat) | Rule: only if the earlier chat is clearly about a different subject, say no earlier chat was found | - | 9/9 said so, none retold the other chat |
+
+The first wording of the last rule ("about something else") also refused a right chat ("I found no earlier chat about
+your trip"; 12/15 complete); "clearly about a different subject" fixed that (15/15). The cutoff stays 0.45: right chats were found up to 0.42 and never-discussed
+topics came as close as 0.42 too, so no cutoff separates them; the rule above handles a wrong chat that gets in.
+Still weak: a broad question ("What did I tell you about my trip?") gets the main points, not every detail (the tea
+ceremony date was left out).
+
 ### 10.11 Risks
 
 | Risk | Mitigation |

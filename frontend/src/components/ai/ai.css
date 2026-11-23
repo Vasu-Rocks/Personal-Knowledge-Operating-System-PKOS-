@@ -98,3 +98,11 @@
 .ai-dot.ok { background: #4ade80; }
 .ai-dot.warn { background: #fbbf24; }
 .ai-dot.err { background: #f87171; }
+
+/* Memory (docs/07_MEMORY_PLAN.md 10.3) */
+.memory-row { padding: 8px 10px; border: var(--pane-border); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 4px; }
+.msg-actions { opacity: 0; transition: opacity var(--transition-fast); }
+.msg-row:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg-action { font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; background: none; border: none; }
+.msg-action:hover { color: var(--accent-blue); transform: none; }
+.memory-label { margin-top: 8px; font-size: 11px; color: #c4b5fd; display: inline-flex; align-items: center; gap: 4px; }

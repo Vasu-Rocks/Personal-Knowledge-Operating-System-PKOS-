@@ -113,6 +113,8 @@ describe('SettingsView', () => {
     'GET /ollama/models': jsonResponse(200, MODELS),
     'GET /graph/status': jsonResponse(200, { entities: 1, relationships: 2, communities: 0, pending_summaries: 0, active_jobs: 0 }),
     'PUT /settings/llm': (body) => saved(body),
+    'GET /memories/settings': jsonResponse(200, { enabled: true, suggest: true }),
+    'GET /memories': jsonResponse(200, { memories: [] }),
     ...over,
   });
 

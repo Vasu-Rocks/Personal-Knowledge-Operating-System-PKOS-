@@ -132,7 +132,11 @@ def build_rag_prompt(user_query: str, retrieved_context: str, graph_data: dict =
         memory_rule += (
             f"{number}. Blocks marked \"{CHAT_MARKER}\" are recaps of the user's earlier conversations with you. Use "
             "them for questions about what was discussed or decided before, and cite them like other blocks; they "
-            "record what was said then, not what the documents say.\n"
+            "record what was said then, not what the documents say. Answer in your own words (for example \"In an "
+            "earlier chat you said ...\"), with the details the recap gives (names, dates, numbers); never copy the "
+            "block's header line. Only if the earlier chat is clearly about a different subject than the question, say that you "
+            "found no earlier chat about it.\n"
+            # Without the last sentence llama3.2 began 15/15 answers with a copy of the block header (step B4).
         )
 
     # Without this sentence llama3.2 refused "Summarise my notes on photosynthesis" with the notes in CONTEXT; with it,

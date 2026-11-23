@@ -39,7 +39,20 @@ export function toUiMessages(messages) {
     : {
       id: m.message_id, type: 'ai', sources: m.sources || [],
       text: m.content + (m.status === 'partial' ? '\n\n*(This answer was interrupted.)*' : ''),
-    }));
+      memories: m.memories_used || [],
+      memoriesOnly: answeredFromMemories(m.memories_used, m.sources, m.graph),
+      failed: m.status === 'error',
+    }))
+    .map((ui, i) => ({ ...ui, serverId: messages[i].message_id, plain: messages[i].content }));
+}
+
+/**
+ * True when an answer had no document passage or graph to go on but did have a saved fact (decision Q5): the app
+ * then labels it "Answered from your saved memories" (the server sends the same as memories_only while streaming).
+ */
+export function answeredFromMemories(memories, sources, graph) {
+  const facts = (memories || []).some((m) => m.kind !== 'preference');
+  return facts && !(sources && sources.length) && !(graph && graph.nodes && graph.nodes.length);
 }
 
 /** "14:05" today, "Yesterday", "12 Mar", "12 Mar 2025". */

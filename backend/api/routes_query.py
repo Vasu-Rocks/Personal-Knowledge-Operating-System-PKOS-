@@ -16,7 +16,7 @@ from core.llm import LLMSettings
 from database import conversations_db
 from database.llm_settings_db import load_llm_settings
 from database import memories_db
-from rag.memory.episodic import past_chat_blocks, refers_to_past_chats, update_recap
+from rag.memory.episodic import lookback_topic, past_chat_blocks, refers_to_past_chats, update_recap
 from rag.memory.ltm import answers_about_the_user, select_memories
 from rag.memory.rewrite import rewrite_question
 from rag.memory.stm import build_history
@@ -155,9 +155,11 @@ async def process_query_stream(
             query_vector_list = query_vector_np.flatten().tolist()
             raw_chunks, graph_data = await retrieve_context(pool, active_user_id, rewrite.question, query_vector_list)
             if use_memories and refers_to_past_chats(user_query, rewrite.question):
-                # "What did we decide about the sensors last time?": the closest earlier chats come first.
-                raw_chunks = await past_chat_blocks(pool, active_user_id, query_vector_list, payload.conversation_id) \
-                    + raw_chunks
+                # "What did we decide about the sensors last time?": the closest earlier chats come first, searched
+                # by the topic alone ("the sensors"), not by the look-back wording every such question shares.
+                topic_vector = (await run_in_threadpool(embed_query, lookback_topic(rewrite.question))).flatten()
+                raw_chunks = await past_chat_blocks(pool, active_user_id, topic_vector.tolist(),
+                                                    payload.conversation_id) + raw_chunks
             if not raw_chunks and not graph_data.get("nodes") and (history or summary):
                 # A follow-up whose search found nothing ("translate that", misjudged as needing search) is most
                 # likely still about the previous answer: give the model those passages rather than nothing. The

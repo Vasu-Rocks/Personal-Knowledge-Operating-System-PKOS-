@@ -7,6 +7,7 @@ import { deleteOllamaModel, getLlmSettings, getOllamaModels, saveLlmSettings, se
 import { CLOUD_PROVIDERS } from '../lib/models';
 import OllamaModelPicker from './ai/OllamaModelPicker';
 import CloudKeyForm from './ai/CloudKeyForm';
+import MemoryPage from './memory/MemoryPage';
 import './ai/ai.css';
 
 const PROVIDERS = [
@@ -222,6 +223,9 @@ export default function SettingsView({ onClose, onOpenSetup, onSaved }) {
               Topic groups answer broad questions such as "give me an overview". They rebuild automatically after a document finishes processing.
             </p>
           </section>
+
+          {/* Memory */}
+          <MemoryPage />
 
           {/* Desktop app */}
           {desktop && desktop.isDesktop && desktop.backups && <DesktopDataSection desktop={desktop} />}

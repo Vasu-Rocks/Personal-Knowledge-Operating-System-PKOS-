@@ -15,7 +15,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 
 import numpy as np  # noqa: E402
 
-from rag.memory.episodic import build_recap, refers_to_past_chats  # noqa: E402
+from rag.memory.episodic import build_recap, lookback_topic, recap_search_text, refers_to_past_chats  # noqa: E402
 from rag.vector.embedder import embed_query, embed_text_batch  # noqa: E402
 
 
@@ -51,6 +51,7 @@ LOOKBACK = [
     ("Did we discuss a pasta recipe before?", "pasta"),
     ("You told me something about a visa, what was it?", "kyoto"),
     ("What did we conclude about the cheaper sensors?", "sensors"),
+    ("Remind me what we discussed about my thesis", "thesis"),
 ]
 
 # Ordinary questions from the other evaluations: none of these should trigger a past-chat search.
@@ -68,11 +69,11 @@ CUTOFFS = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55]
 
 def main():
     ids = list(CHATS)
-    vectors = embed_text_batch([CHATS[i] for i in ids])
+    vectors = embed_text_batch([recap_search_text(CHATS[i]) for i in ids])  # as update_recap embeds them
     rows = []
     print("question -> closest chat (distance) | expected chat distance")
     for question, expected in LOOKBACK:
-        dist = 1.0 - vectors @ embed_query(question).flatten()
+        dist = 1.0 - vectors @ embed_query(lookback_topic(question)).flatten()  # as routes_query searches
         order = np.argsort(dist)
         rows.append((expected, {ids[i]: float(dist[i]) for i in order}))
         best = ids[order[0]]

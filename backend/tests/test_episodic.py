@@ -8,7 +8,7 @@ import pytest
 from api import routes_query
 from conftest import event, fake_vector, run_db, sse_events
 from rag.memory import episodic
-from rag.memory.episodic import RECAP_MAX_CHARS, build_recap, refers_to_past_chats
+from rag.memory.episodic import RECAP_MAX_CHARS, build_recap, lookback_topic, recap_search_text, refers_to_past_chats
 from rag.query.prompt_builder import build_rag_prompt
 from rag.query.retriever import format_context_blocks
 
@@ -49,6 +49,21 @@ def test_the_rewritten_question_counts_too():
     assert refers_to_past_chats("and the budget?", "What did we decide about the budget last time?")
 
 
+@pytest.mark.parametrize("question, topic", [
+    ("What did we decide about the sensors last time?", "the sensors"),
+    ("Remind me what we discussed about my thesis", "my thesis"),
+    ("Did we ever talk about Python decorators?", "Python decorators"),
+    ("In our earlier chat I mentioned my sourdough hydration - what was it?", "my sourdough hydration - what was it"),
+    ("last time?", "last time?"),   # nothing left: the question as typed
+])
+def test_past_chats_are_searched_by_the_topic_alone(question, topic):
+    assert lookback_topic(question) == topic
+
+
+def test_recaps_are_embedded_without_their_turn_labels():
+    assert recap_search_text("Budget. The user said: How much? You answered: 120,000.") == "Budget. How much? 120,000."
+
+
 # ------------------------------------------------------------------------------------------------ recaps
 
 def msg(role, content, status="complete"):
@@ -61,8 +76,26 @@ def test_a_short_chat_is_recapped_from_its_turns():
         msg("assistant", "The Campbell Scientific ones [Chunk 1], because they drift less. " + "x " * 200),
         msg("user", "broken"), msg("assistant", "System Error: down", "error"),
     ])
-    assert recap.startswith("Sensor order. Question: Which sensors should we order? Answer: The Campbell Scientific ones,")
+    assert recap.startswith("Sensor order. The user said: Which sensors should we order? You answered: The Campbell "
+                            "Scientific ones,")
     assert "[Chunk" not in recap and "System Error" not in recap and "..." in recap
+
+
+def test_a_recap_leaves_out_refusals_and_a_title_that_repeats_the_question():
+    recap = build_recap("I plan a trip to Kyoto in April and stay near...", None, [
+        msg("user", "I plan a trip to Kyoto in April and stay near Gion."),
+        msg("assistant", "I cannot find the answer in your documents."),
+    ])
+    assert recap == "The user said: I plan a trip to Kyoto in April and stay near Gion."
+
+
+def test_look_back_turns_are_left_out_of_a_recap():
+    """They only repeat another chat, and their wording would match every later look-back question."""
+    look_back = [msg("user", "What did I tell you about my trip last time?"),
+                 msg("assistant", "In an earlier chat you said you plan a trip to Kyoto.")]
+    assert build_recap("What did I tell you about my trip last time?", None, look_back) == ""
+    assert build_recap("What did I tell you about my trip last time?", None, look_back + [
+        msg("user", "Which sensors should we order?"), msg("assistant", "The Campbell ones.")]) ==         "The user said: Which sensors should we order? You answered: The Campbell ones."
 
 
 def test_a_long_chat_is_recapped_from_its_summary_and_kept_short():
@@ -84,8 +117,8 @@ def test_update_recap_stores_the_text_and_its_embedding(make_user):
                                        uuid.UUID(cid))
 
     row = run_db(go)
-    assert row["recap"].startswith("Which sensors should we order?. Question: Which sensors should we order?")
-    assert np.allclose(np.asarray(row["recap_embedding"]), fake_vector(row["recap"]), atol=1e-6)
+    assert row["recap"] == "The user said: Which sensors should we order?"  # no documents: the refusal is left out
+    assert np.allclose(np.asarray(row["recap_embedding"]), fake_vector("Which sensors should we order?"), atol=1e-6)
 
 
 # ------------------------------------------------------------------------------------------------ prompt and blocks

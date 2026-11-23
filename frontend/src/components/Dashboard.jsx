@@ -12,7 +12,9 @@ import ChatList from './chats/ChatList';
 import useChats from './chats/useChats';
 import { getConversation } from '../lib/conversationsApi';
 import { EMPTY_GRAPH, prepareGraph, toUiMessages } from '../lib/chatView';
-import { Send, Terminal, KeySquare, Activity, Bot, User, Sparkles } from 'lucide-react';
+import { guessKind, memoryDraft } from '../lib/memoriesApi';
+import RememberDialog from './memory/RememberDialog';
+import { Send, Terminal, KeySquare, Activity, Bot, Sparkles, Bookmark, Brain, MessagesSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -63,6 +65,7 @@ export default function Dashboard() {
   const [inputVal, setInputVal] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [selectedMsgId, setSelectedMsgId] = useState(SYS_ID);
+  const [rememberMsg, setRememberMsg] = useState(null); // the message "Remember this" was clicked on
   const messagesEndRef = useRef(null);
 
   // Graph State
@@ -284,6 +287,17 @@ export default function Dashboard() {
               searched: parsed.needs_search && parsed.rewritten ? parsed.standalone : null,
               reused: !parsed.needs_search,
             } : m)));
+          } else if (parsed.type === 'memories') {
+            // Saved memories given to the model (X-Ray), and whether they were all it had to answer from.
+            setMessages(prev => prev.map(m => (m.id === aiMsgId
+              ? { ...m, memories: parsed.memories || [], memoriesOnly: Boolean(parsed.memories_only) } : m)));
+          } else if (parsed.type === 'saved') {
+            // The stored ids, so "Remember this" can link a memory to the message it came from.
+            setMessages(prev => prev.map(m => {
+              if (m.id === userMsgId) return { ...m, serverId: parsed.question_id };
+              if (m.id === aiMsgId) return { ...m, serverId: parsed.answer_id };
+              return m;
+            }));
           } else if (parsed.type === 'sources') {
             setMessages(prev => prev.map(m => 
               m.id === aiMsgId ? { ...m, sources: parsed.sources || [] } : m
@@ -314,6 +328,9 @@ export default function Dashboard() {
   };
 
   const selectedMsg = messages.find(m => m.id === selectedMsgId);
+  const streamingId = isTyping ? messages[messages.length - 1]?.id : null;
+  const canRemember = (m) => (m.type === 'user' || m.type === 'ai') && !m.failed && m.id !== streamingId
+    && Boolean((m.plain ?? m.text ?? '').trim()) && !String(m.text).startsWith('System Error');
 
   return (
     <div className="os-shell">
@@ -358,8 +375,9 @@ export default function Dashboard() {
         {/* Message Stream */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {messages.map((msg) => (
-            <div 
+            <div
               key={msg.id}
+              className="msg-row"
               onClick={() => {
                 if (msg.type === "ai" || msg.type === "system") setSelectedMsgId(msg.id);
               }}
@@ -393,6 +411,11 @@ export default function Dashboard() {
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                       {processCitations(msg.text)}
                     </ReactMarkdown>
+                    {msg.memoriesOnly && (
+                      <div className="memory-label" data-testid="memory-label">
+                        <Brain size={12} /> Answered from your saved memories, not from your documents
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -409,9 +432,26 @@ export default function Dashboard() {
                     )}
                   </>
                 )}
+                {canRemember(msg) && (
+                  <div className="msg-actions" style={{ marginTop: '4px', textAlign: msg.type === 'user' ? 'right' : 'left' }}>
+                    <button type="button" className="msg-action" aria-label="Remember this"
+                      style={msg.type === 'user' ? { color: 'rgba(255,255,255,0.8)' } : undefined}
+                      onClick={(e) => { e.stopPropagation(); setRememberMsg(msg); }}>
+                      <Bookmark size={11} /> Remember this
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
+          {rememberMsg && (
+            <RememberDialog
+              initialText={memoryDraft(rememberMsg.plain ?? rememberMsg.text)}
+              initialKind={guessKind(rememberMsg.plain ?? rememberMsg.text, rememberMsg.type)}
+              source={{ conversationId, messageId: rememberMsg.serverId }}
+              onClose={() => setRememberMsg(null)}
+            />
+          )}
           {isTyping && (
             <div style={{ display: 'flex', gap: '16px', opacity: 0.7 }}>
                <div style={{
@@ -566,6 +606,30 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Saved memories given to the model for this answer (docs/07_MEMORY_PLAN.md 10.1 rule 4) */}
+              {selectedMsg.memories && selectedMsg.memories.length > 0 && (
+                <div data-testid="memories-used">
+                  <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px', color: 'var(--text-secondary)' }}>
+                    Memories used ({selectedMsg.memories.length})
+                  </h4>
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {selectedMsg.memories.map((m) => (
+                      <li key={m.memory_id} style={{
+                        display: 'flex', gap: '8px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--text-secondary)',
+                        lineHeight: 1.5, padding: '8px 12px', border: '1px solid rgba(167, 139, 250, 0.3)',
+                        background: 'rgba(167, 139, 250, 0.06)', borderRadius: 'var(--radius-md)',
+                      }}>
+                        <Brain size={13} color="#c4b5fd" style={{ flexShrink: 0, marginTop: '3px' }} />
+                        <span style={{ flex: 1 }}>{m.text}</span>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#c4b5fd', whiteSpace: 'nowrap' }}>
+                          {m.kind === 'preference' ? 'how to answer' : m.kind}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Source Render blocks */}
               <div>
                 <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px', color: 'var(--text-secondary)' }}>
@@ -586,10 +650,27 @@ export default function Dashboard() {
                         overflow: 'hidden',
                         transition: 'all 0.3s ease'
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderBottom: 'var(--pane-border)' }}>
-                          <span style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text-primary)' }}>{src.filename}</span>
-                          <span style={{ fontSize: '11px', color: 'var(--accent-blue)' }}>PG {src.page}</span>
-                        </div>
+                        {src.via === 'chat' ? (
+                          // A past chat (episodic memory): its recap was given to the model; clicking opens that chat.
+                          <div data-testid="past-chat-source" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderBottom: 'var(--pane-border)' }}>
+                            <MessagesSquare size={13} color="#c4b5fd" style={{ flexShrink: 0 }} />
+                            <span style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text-primary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              title={src.filename}>
+                              Earlier chat: {src.filename}
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{src.page}</span>
+                            <button type="button" className="ai-btn-link" disabled={isTyping}
+                              style={{ fontSize: '11px', color: 'var(--accent-blue)', background: 'none', border: 'none', padding: 0 }}
+                              onClick={() => openChat(src.conversation_id)} aria-label={`Open the chat ${src.filename}`}>
+                              Open chat
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderBottom: 'var(--pane-border)' }}>
+                            <span style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text-primary)' }}>{src.filename}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--accent-blue)' }}>PG {src.page}</span>
+                          </div>
+                        )}
                         <div style={{ padding: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, maxHeight: '200px', overflowY: 'auto' }}>
                           {src.text}
                         </div>

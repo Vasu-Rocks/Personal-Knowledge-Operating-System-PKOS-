@@ -338,7 +338,7 @@ export default function VaultView({ width = 250, onOpenSetup, onAiChanged, chats
               @{user.username}
             </span>
             <button 
-              onClick={() => setShowSettings(true)}
+              onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings"
               style={{
                 position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
                 background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px'
