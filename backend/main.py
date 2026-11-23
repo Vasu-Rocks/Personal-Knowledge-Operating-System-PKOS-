@@ -33,6 +33,7 @@ from api import routes_llm
 from api import routes_import
 from api import routes_media
 from api import routes_conversations
+from api import routes_memories
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -92,6 +93,7 @@ app.include_router(routes_llm.router, prefix="/api/v1", tags=["AI"])
 app.include_router(routes_import.router, prefix="/api/v1", tags=["Import"])
 app.include_router(routes_media.router, prefix="/api/v1", tags=["Media"])
 app.include_router(routes_conversations.router, prefix="/api/v1", tags=["Chats"])
+app.include_router(routes_memories.router, prefix="/api/v1", tags=["Memories"])
 
 
 

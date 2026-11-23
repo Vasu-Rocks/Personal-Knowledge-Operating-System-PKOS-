@@ -97,7 +97,7 @@ def client():
 
     from fastapi.testclient import TestClient
     import main
-    from api import routes_ingest, routes_query
+    from api import routes_ingest, routes_memories, routes_query
 
     async def fake_stream(prompt, settings=None):
         yield json.dumps({"type": "token", "content": "fake answer"})
@@ -105,6 +105,7 @@ def client():
     mp = pytest.MonkeyPatch()
     mp.setattr(routes_ingest, "embed_text_batch", lambda texts: np.stack([fake_vector(t) for t in texts]))
     mp.setattr(routes_query, "embed_query", lambda q: fake_vector(q).reshape(1, -1))
+    mp.setattr(routes_memories, "embed_text_batch", lambda texts: np.stack([fake_vector(t) for t in texts]))
     mp.setattr(routes_query, "generate_rag_response_stream", fake_stream)
 
     # Follow-up rewriting calls the model too: by default the question is searched as typed (tests that need a

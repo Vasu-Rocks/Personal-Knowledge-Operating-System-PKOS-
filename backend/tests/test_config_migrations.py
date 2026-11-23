@@ -63,7 +63,7 @@ def test_migrations_are_recorded_and_idempotent(client):
             await conn.close()
 
     versions, cols = asyncio.run(check())
-    assert versions == [1, 2, 3]
+    assert versions == [1, 2, 3, 4]
     assert "mention_snippet" not in cols
 
 
