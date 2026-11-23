@@ -132,3 +132,35 @@ async def save_settings(pool: asyncpg.Pool, user_id: str, *, enabled: bool | Non
                ON CONFLICT (user_id) DO UPDATE SET enabled = $2, suggest = $3""",
             uuid.UUID(user_id), enabled, suggest)
     return {"enabled": enabled, "suggest": suggest}
+
+
+async def active_preferences(pool: asyncpg.Pool, user_id: str, limit: int) -> list[dict]:
+    """The user's kept preferences, newest first: they shape every answer."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT memory_id, text, kind FROM memories WHERE user_id = $1 AND status = 'active' AND kind = 'preference'
+               ORDER BY updated_at DESC LIMIT $2""", uuid.UUID(user_id), limit)
+    return [{"memory_id": str(r["memory_id"]), "text": r["text"], "kind": r["kind"]} for r in rows]
+
+
+async def closest_facts(pool: asyncpg.Pool, user_id: str, query_vector: list, limit: int,
+                        max_distance: float) -> list[dict]:
+    """Kept facts and conclusions closest to the question, within max_distance (cosine)."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT memory_id, text, kind, (embedding <=> $2) AS distance FROM memories
+               WHERE user_id = $1 AND status = 'active' AND kind <> 'preference' AND embedding IS NOT NULL
+                 AND (embedding <=> $2) < $3
+               ORDER BY distance LIMIT $4""", uuid.UUID(user_id), query_vector, max_distance, limit)
+    return [{"memory_id": str(r["memory_id"]), "text": r["text"], "kind": r["kind"], "distance": float(r["distance"])}
+            for r in rows]
+
+
+async def mark_used(pool: asyncpg.Pool, user_id: str, memory_ids: list[str]) -> None:
+    if not memory_ids:
+        return
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE memories SET last_used_at = now(), use_count = use_count + 1
+               WHERE user_id = $1 AND memory_id = ANY($2::uuid[])""",
+            uuid.UUID(user_id), [uuid.UUID(m) for m in memory_ids])

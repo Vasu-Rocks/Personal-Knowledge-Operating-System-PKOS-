@@ -47,6 +47,7 @@ def _message(row) -> dict:
         "status": row["status"],
         "provider": row["provider"],
         "model": row["model"],
+        "memories_used": json.loads(row["memories_used"]) if row.get("memories_used") is not None else None,
         "created_at": row["created_at"].isoformat(),
     }
 
@@ -114,7 +115,8 @@ async def delete_conversation(pool: asyncpg.Pool, user_id: str, conversation_id:
 async def append_message(pool: asyncpg.Pool, user_id: str, conversation_id: uuid.UUID, role: str, content: str, *,
                          standalone_query: str | None = None, needs_search: bool | None = None,
                          sources: list | None = None, graph: dict | None = None, status: str = "complete",
-                         provider: str | None = None, model: str | None = None) -> dict | None:
+                         provider: str | None = None, model: str | None = None,
+                         memories_used: list | None = None) -> dict | None:
     """Adds a message at the end of the conversation (None if the conversation is not the user's).
     The first user message also becomes the title while the conversation still has the default one."""
     async with pool.acquire() as conn, conn.transaction():
@@ -128,11 +130,11 @@ async def append_message(pool: asyncpg.Pool, user_id: str, conversation_id: uuid
             return None
         row = await conn.fetchrow(
             """INSERT INTO messages (message_id, conversation_id, seq, role, content, standalone_query, needs_search,
-                                     sources, graph, status, provider, model)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12) RETURNING *""",
+                                     sources, graph, status, provider, model, memories_used)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13::jsonb) RETURNING *""",
             uuid.uuid4(), conversation_id, conv["message_count"], role, content, standalone_query, needs_search,
             json.dumps(sources) if sources is not None else None, json.dumps(graph) if graph is not None else None,
-            status, provider, model)
+            status, provider, model, json.dumps(memories_used) if memories_used is not None else None)
     return _message(row)
 
 

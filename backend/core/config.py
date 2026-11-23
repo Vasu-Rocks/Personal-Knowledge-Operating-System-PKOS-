@@ -53,6 +53,15 @@ MEMORY_ENABLED = _env_bool("MEMORY_ENABLED", True)
 HISTORY_MAX_TURNS = int(os.getenv("HISTORY_MAX_TURNS", "6"))
 HISTORY_MAX_CHARS = int(os.getenv("HISTORY_MAX_CHARS", "2400"))
 SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "1200"))
+# Long-term memories in answers (docs/07_MEMORY_PLAN.md 10.4): preferences always (newest first), facts and conclusions
+# by similarity to the (standalone) question. MEMORY_MAX_DISTANCE is tuned by backend/eval_memories.py.
+MEMORY_MAX_PREFERENCES = int(os.getenv("MEMORY_MAX_PREFERENCES", "5"))
+MEMORY_MAX_FACTS = int(os.getenv("MEMORY_MAX_FACTS", "3"))
+# 0.40 measured best (eval_memories.py): 8/10 right memories found, 0/10 unrelated questions given one; 0.45 already
+# adds memories to 2/10 unrelated questions, and a looser cutoff for first-person questions hit 5/6 "summarise my notes"
+# document questions at 0.50.
+MEMORY_MAX_DISTANCE = float(os.getenv("MEMORY_MAX_DISTANCE", "0.40"))
+MEMORY_MAX_CHARS = int(os.getenv("MEMORY_MAX_CHARS", "600"))
 # Follow-ups are rewritten into standalone questions before search; after this many seconds the question as typed is used.
 # Generous on purpose: a local model that has to load first takes ~8 s, and that load is needed for the answer anyway.
 REWRITE_TIMEOUT = float(os.getenv("REWRITE_TIMEOUT", "20"))

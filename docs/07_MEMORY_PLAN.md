@@ -290,8 +290,8 @@ and edit with the same bge-small model as the documents.
 
 Per question, after the follow-up rewrite (the standalone question is the search text):
 1. **Preferences are always included** (they are instructions about the answers), newest first, at most 5.
-2. **Facts and conclusions by similarity:** the 3 closest active ones with cosine distance < 0.45 (tuned in B2 with an
-   evaluation, like the 0.35 cutoff for passages).
+2. **Facts and conclusions by similarity:** the 3 closest active ones with cosine distance < 0.40 (tuned in B2, see
+   "Step B2 results"; 0.45 was the first guess).
 3. Together at most 600 characters; whatever is used gets `last_used_at` / `use_count` updated and is stored on the
    answer (`memories_used`).
 4. In the prompt: a section in the system message, *outside* CONTEXT:
@@ -359,6 +359,29 @@ that open the chat), `SettingsView.jsx` (Memory section), `CloudKeyForm.jsx` (me
 | B4 | Frontend: Memory page, "Remember this", X-Ray "Memories used", past-chat sources | Component tests; checked in the dev app |
 | B5 | Suggestions: proposed after summary updates, pending until confirmed, suggestion bar | Tests; quality check on llama3.2 (no suggestions from ordinary document questions, sensible ones from "I am a beginner, keep it simple") |
 | B6 | Import tool, docs, cloud notice, version 0.6.0, packaged app check | Packaged app: memories survive a restart and an upgrade from 0.5.0 data |
+
+### Step B2 results (2026-11-23, `backend/eval_memories.py`, bge-small; llama3.2 3B for the answers)
+
+Distance cutoff, 10 memories, 10 questions a memory should help with, 10 unrelated questions, 6 first-person document
+questions ("summarise my notes on..."):
+
+| cutoff | right memory found | unrelated given a memory | first-person document questions given a memory |
+|---|---|---|---|
+| 0.35 | 7/10 | 0/10 | 1/6 |
+| **0.40** (chosen) | **8/10** | **0/10** | **1/6** |
+| 0.45 (planned) | 8/10 | 2/10 | 2/6 |
+| 0.50 | 10/10 | 3/10 | 5/6 |
+
+The two misses at 0.40 are short personal questions ("Where do I live?", "Suggest a dinner recipe I can eat", both
+0.48). A looser cutoff for first-person questions was rejected: at 0.50 it gives memories to 5 of 6 document questions.
+
+Answers on llama3.2 (3 runs each, temperature 0.1): a preference was followed 3/3 (bullet lists); "When is my exam?"
+answered from the memory 3/3; an unrelated memory was never mixed into a document answer 3/3; a document question with no
+answer in the passages was still refused 3/3 although a memory was present. Asked to say "From your saved memories",
+the model did so 0/3, even as a MUST rule, so the app shows that label itself: the `memories` event carries
+`memories_only` (no document passage was used). Found in passing, not caused by memories: "Summarise my notes on
+photosynthesis" is refused 3/3 *without* any memory too - the strict "exact answer" rule makes the 3B model refuse
+summary requests.
 
 ### 10.11 Risks
 
