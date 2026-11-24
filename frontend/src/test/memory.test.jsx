@@ -168,11 +168,11 @@ function dashboardRoutes(extra = {}) {
 }
 
 const ask = async (text) => {
-  await userEvent.type(screen.getByPlaceholderText('Query the unified database...'), `${text}{enter}`);
+  await userEvent.type(screen.getByPlaceholderText('Ask about your documents...'), `${text}{enter}`);
 };
 
 describe('memories in the chat', () => {
-  it('labels an answer that came from saved memories and lists them in the X-Ray panel', async () => {
+  it('labels an answer that came from saved memories and lists them under Sources', async () => {
     routeFetch(dashboardRoutes({
       'POST /query/stream': () => streamResponse([
         sse({ type: 'conversation', conversation_id: 'c1', title: 'When is my exam?' },
@@ -185,6 +185,8 @@ describe('memories in the chat', () => {
     withAuth(<Dashboard />);
     await ask('When is my exam?');
     expect(await screen.findByTestId('memory-label')).toHaveTextContent('Answered from your saved memories');
+    expect(screen.queryByTestId('memories-used')).not.toBeInTheDocument(); // the sources open only when asked for
+    await userEvent.click(screen.getByRole('button', { name: 'Memories used (2)' }));
     const used = screen.getByTestId('memories-used');
     expect(used).toHaveTextContent('Memories used (2)');
     expect(within(used).getByText(EXAM.text)).toBeInTheDocument();
@@ -204,7 +206,8 @@ describe('memories in the chat', () => {
     await ask('What is a deadlock?');
     await screen.findByText('I cannot find the answer in your documents.');
     expect(screen.queryByTestId('memory-label')).not.toBeInTheDocument();
-    expect(screen.getByTestId('memories-used')).toHaveTextContent('Memories used (1)'); // still shown in X-Ray
+    await userEvent.click(screen.getByRole('button', { name: 'Memories used (1)' }));
+    expect(screen.getByTestId('memories-used')).toHaveTextContent('Memories used (1)'); // still listed under Sources
   });
 
   it('does not label an answer that also had document passages', async () => {
@@ -219,7 +222,10 @@ describe('memories in the chat', () => {
     }));
     withAuth(<Dashboard />);
     await ask('What topics are on my exam?');
-    await screen.findByTestId('memories-used');
+    await userEvent.click(await screen.findByRole('button', { name: 'Sources (1)' }));
+    expect(screen.getByTestId('memories-used')).toHaveTextContent('Memories used (1)');
+    expect(screen.getByTestId('source-card')).toHaveTextContent('syllabus.pdf · page 2');
+    expect(screen.getByTestId('source-card')).toHaveTextContent('Match 80%');
     expect(screen.queryByTestId('memory-label')).not.toBeInTheDocument();
   });
 
@@ -271,6 +277,7 @@ describe('memories in the chat', () => {
     }));
     withAuth(<Dashboard />);
     await ask('What did we decide about the sensors last time?');
+    await userEvent.click(await screen.findByRole('button', { name: 'Sources (1)' }));
     const card = await screen.findByTestId('past-chat-source');
     expect(card).toHaveTextContent('Earlier chat: Sensor order');
     expect(card).toHaveTextContent('2026-11-20');
@@ -348,9 +355,8 @@ describe('memory suggestions in the chat', () => {
         messages: [{ message_id: 'x1', role: 'user', content: 'My exam is on 14 February. What to revise?' }] }),
     }));
     withAuth(<Dashboard />);
-    await screen.findByPlaceholderText('Query the unified database...');
+    await screen.findByPlaceholderText('Ask about your documents...');
     expect(screen.queryByTestId('suggestion')).not.toBeInTheDocument();   // a new chat
-    await userEvent.click(await screen.findByRole('tab', { name: 'Chats' }));
     await userEvent.click(await screen.findByText('Exam prep'));
     expect(await screen.findByTestId('suggestion')).toHaveTextContent('My exam is on 14 February');
   });
@@ -381,7 +387,7 @@ describe('memory suggestions in the chat', () => {
     withAuth(<Dashboard />);
     await ask('I am new here. Hi?');
     await screen.findByText('Done.');
-    await waitFor(() => expect(screen.queryByText('Synthesizing matrices...')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Thinking...')).not.toBeInTheDocument());
     release();
   });
 });

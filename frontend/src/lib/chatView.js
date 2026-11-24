@@ -41,6 +41,7 @@ export function toUiMessages(messages) {
       text: m.content + (m.status === 'partial' ? '\n\n*(This answer was interrupted.)*' : ''),
       memories: m.memories_used || [],
       memoriesOnly: answeredFromMemories(m.memories_used, m.sources, m.graph),
+      graph: m.graph || null, // the concept connections behind this answer (Sources > Show connections)
       failed: m.status === 'error',
     }))
     .map((ui, i) => ({ ...ui, serverId: messages[i].message_id, plain: messages[i].content }));
@@ -65,4 +66,10 @@ export function shortDate(iso, now = new Date()) {
   if (diff === 1) return 'Yesterday';
   return d.toLocaleDateString([], d.getFullYear() === now.getFullYear()
     ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** "Match 86%" for a passage: from its cosine distance (0 = identical); null when unknown. */
+export function matchPercent(distance) {
+  if (typeof distance !== 'number' || Number.isNaN(distance)) return null;
+  return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
 }

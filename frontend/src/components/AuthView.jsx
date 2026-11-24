@@ -61,10 +61,10 @@ export default function AuthView() {
             {isLogin ? <Lock size={28} color="var(--accent-blue)" /> : <KeyRound size={28} color="var(--accent-blue)" />}
           </div>
           <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '8px' }}>
-            {isLogin ? 'Welcome Back' : 'Initialize Vault'}
+            {isLogin ? 'Log in to PKOS' : 'Create your account'}
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-            {isLogin ? 'Enter your cryptographic keys to access PKOS.' : 'Establish your isolated RAG environment.'}
+            {isLogin ? 'Your private AI for your own documents.' : 'Your documents and chats stay on this computer.'}
           </p>
         </div>
 
@@ -82,8 +82,8 @@ export default function AuthView() {
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Email / Identification Field */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              {isLogin ? 'Identify' : 'Email Address'}
+            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {isLogin ? 'Email or username' : 'Email'}
             </label>
             <div style={{
               display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)',
@@ -103,7 +103,7 @@ export default function AuthView() {
           {/* Full Name Field (Register Only) */}
           {!isLogin && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Full Name</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Name</label>
               <div style={{
                 display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)',
                 border: 'var(--pane-border)', borderRadius: 'var(--radius-sm)', padding: '0 12px'
@@ -122,7 +122,7 @@ export default function AuthView() {
           {/* Username Field (Register Only) */}
           {!isLogin && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Username</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Username</label>
               <div style={{
                 display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)',
                 border: 'var(--pane-border)', borderRadius: 'var(--radius-sm)', padding: '0 12px'
@@ -143,7 +143,7 @@ export default function AuthView() {
           
           {/* Passkey Field */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Passkey</label>
+            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Password</label>
             <div style={{
               display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)',
               border: 'var(--pane-border)', borderRadius: 'var(--radius-sm)', padding: '0 12px'
@@ -170,18 +170,16 @@ export default function AuthView() {
               marginTop: '8px', opacity: isLoading ? 0.7 : 1
             }}
           >
-            {isLoading ? 'Decrypting...' : (isLogin ? 'Access System' : 'Create Keys')}
+            {isLoading ? 'Please wait...' : (isLogin ? 'Log in' : 'Create account')}
           </button>
         </form>
 
         <div style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
-          {isLogin ? "Don't have access? " : "Already established? "}
-          <span 
-            onClick={toggleMode}
-            style={{ color: 'var(--accent-blue)', cursor: 'pointer', fontWeight: '500' }}
-          >
-            {isLogin ? 'Initialize System' : 'Access Vault'}
-          </span>
+          {isLogin ? 'No account yet? ' : 'Already have an account? '}
+          <button type="button" onClick={toggleMode}
+            style={{ color: 'var(--accent-blue)', cursor: 'pointer', fontWeight: '500', fontSize: '13px' }}>
+            {isLogin ? 'Create one' : 'Log in'}
+          </button>
         </div>
       </div>
     </div>

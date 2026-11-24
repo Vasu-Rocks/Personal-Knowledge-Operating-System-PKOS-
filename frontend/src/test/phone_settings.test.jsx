@@ -46,7 +46,7 @@ describe('Settings on a phone', () => {
   it('never opens the AI setup wizard on a phone, even when the AI is not set up', async () => {
     routeFetch(routes);
     render(<AuthProvider><Dashboard /></AuthProvider>);
-    await screen.findByPlaceholderText('Query the unified database...');
+    await screen.findByPlaceholderText('Ask about your documents...');
     await new Promise((r) => setTimeout(r, 200));
     await waitFor(() => expect(screen.queryByText(/Set up your AI/)).not.toBeInTheDocument());
   });

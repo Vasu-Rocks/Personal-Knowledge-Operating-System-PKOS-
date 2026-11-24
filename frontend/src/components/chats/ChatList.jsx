@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MessageSquare, Pencil, Plus, Trash2, Check, X, Loader2 } from 'lucide-react';
+import { Pencil, Plus, Trash2, Check, X, Loader2 } from 'lucide-react';
 import { shortDate } from '../../lib/chatView';
 
 const iconButton = {
@@ -43,8 +43,7 @@ function ChatRow({ chat, active, onOpen, onRename, onDelete }) {
       aria-current={active ? 'true' : undefined}
       style={{
         padding: '8px 10px', borderRadius: 'var(--radius-sm)', cursor: mode === 'view' ? 'pointer' : 'default',
-        background: active ? 'var(--accent-glow)' : hover ? 'var(--bg-surface)' : 'transparent',
-        border: active ? '1px solid rgba(59,130,246,0.35)' : '1px solid transparent',
+        background: active ? 'var(--bg-surface-hover)' : hover ? 'var(--bg-surface)' : 'transparent',
         transition: 'background var(--transition-fast)',
       }}
     >
@@ -75,7 +74,6 @@ function ChatRow({ chat, active, onOpen, onRename, onDelete }) {
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <MessageSquare size={14} color={active ? 'var(--accent-blue)' : 'var(--text-muted)'} style={{ flexShrink: 0 }} />
           <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
             <span style={{ fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={chat.title}>
               {chat.title}
@@ -104,23 +102,26 @@ function ChatRow({ chat, active, onOpen, onRename, onDelete }) {
 /** Left-panel list of saved chats with "New chat"; rename and delete per chat. */
 export default function ChatList({ chats, activeId, loading, error, hasMore, onNew, onOpen, onRename, onDelete, onLoadMore }) {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: 0 }}>
       <button
         type="button" onClick={onNew}
         style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px',
-          borderRadius: 'var(--radius-sm)', border: '1px dashed rgba(255,255,255,0.15)', fontSize: '13px',
-          color: 'var(--text-primary)', background: activeId ? 'transparent' : 'var(--accent-glow)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 10px',
+          borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '13px', fontWeight: 500,
+          color: 'var(--text-primary)', background: 'transparent', cursor: 'pointer',
         }}
       >
         <Plus size={15} /> New chat
       </button>
+      {chats.length > 0 && (
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '4px 10px 0' }}>Chats</div>
+      )}
       {error && <div role="alert" style={{ color: '#ef4444', fontSize: '12px' }}>{error}</div>}
       {loading && !chats.length && (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}><Loader2 size={18} className="loader" /></div>
       )}
       {!loading && !chats.length && !error && (
-        <p style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, padding: '0 10px' }}>
           No chats yet. Ask a question to start one; it is saved here automatically.
         </p>
       )}

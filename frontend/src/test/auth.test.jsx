@@ -25,13 +25,13 @@ beforeEach(() => {
 describe('AuthView', () => {
   it('shows login by default with no password length rule', () => {
     renderAuth();
-    expect(screen.getByText('Welcome Back')).toBeInTheDocument();
+    expect(screen.getByText('Log in to PKOS')).toBeInTheDocument();
     expect(document.querySelector('input[type=password]').minLength).toBe(-1);
   });
 
   it('register mode enforces the server rules in the form', async () => {
     renderAuth();
-    await userEvent.click(screen.getByText('Initialize System'));
+    await userEvent.click(screen.getByRole('button', { name: 'Create one' }));
     expect(document.querySelector('input[type=password]').minLength).toBe(8);
     const username = screen.getByPlaceholderText('johndoe');
     expect(username).toHaveAttribute('pattern', '[A-Za-z0-9_.\\-]{3,32}');
@@ -46,7 +46,7 @@ describe('AuthView', () => {
     render(<AuthProvider><Status /><AuthView /></AuthProvider>);
     await userEvent.type(screen.getByPlaceholderText('user@gmail.com or username'), 'vasu');
     await userEvent.type(document.querySelector('input[type=password]'), 'secret123');
-    await userEvent.click(screen.getByText('Access System'));
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }));
     await waitFor(() => expect(screen.getByText('in:vasu')).toBeInTheDocument());
     expect(localStorage.getItem('pkos_token')).toBe('tok-123');
     expect(fetch.mock.calls[0][0]).toMatch(/\/api\/v1\/login$/);
@@ -58,7 +58,7 @@ describe('AuthView', () => {
     renderAuth();
     await userEvent.type(screen.getByPlaceholderText('user@gmail.com or username'), 'x');
     await userEvent.type(document.querySelector('input[type=password]'), 'y');
-    await userEvent.click(screen.getByText('Access System'));
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }));
     expect(await screen.findByText('Incorrect credentials.')).toBeInTheDocument();
   });
 
@@ -67,7 +67,7 @@ describe('AuthView', () => {
     renderAuth();
     await userEvent.type(screen.getByPlaceholderText('user@gmail.com or username'), 'x');
     await userEvent.type(document.querySelector('input[type=password]'), 'y');
-    await userEvent.click(screen.getByText('Access System'));
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }));
     expect(await screen.findByText('Field required; Bad value')).toBeInTheDocument();
   });
 });

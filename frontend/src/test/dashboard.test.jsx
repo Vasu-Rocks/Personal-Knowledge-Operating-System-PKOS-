@@ -67,7 +67,7 @@ describe('Dashboard', () => {
     renderDashboard();
     await screen.findByText('llama3.2 · on this PC');
     await waitFor(() => expect(localStorage.getItem('openai_api_key')).toBeNull()); // migrated off the browser
-    await userEvent.type(screen.getByPlaceholderText('Query the unified database...'), 'hi{enter}');
+    await userEvent.type(screen.getByPlaceholderText('Ask about your documents...'), 'hi{enter}');
     expect(await screen.findByText('Hello world')).toBeInTheDocument();
     const [, init] = fetch.mock.calls.find(([url]) => String(url).endsWith('/query/stream'));
     expect(Object.keys(init.headers).map((h) => h.toLowerCase()).sort()).toEqual(['authorization', 'content-type']);

@@ -45,7 +45,7 @@ function routes(extra = {}) {
 const renderDashboard = () => render(<AuthProvider><Dashboard /></AuthProvider>);
 
 async function openChatsTab() {
-  await userEvent.click(await screen.findByRole('tab', { name: 'Chats' }));
+  await screen.findByRole('navigation', { name: 'PKOS' }); // the chats are always listed in the sidebar
 }
 
 const answer = (conversationId, title, extra = []) => () => streamResponse([
@@ -89,7 +89,7 @@ describe('chat list', () => {
     await openChatsTab();
     expect(await screen.findByText(/No chats yet/)).toBeInTheDocument();
 
-    const box = screen.getByPlaceholderText('Query the unified database...');
+    const box = screen.getByPlaceholderText('Ask about your documents...');
     await userEvent.type(box, 'How many sensors?{enter}');
     await screen.findAllByText('Answer text');
     expect(within(await screen.findByTestId('chat-row')).getByText('How many sensors?')).toBeInTheDocument();
@@ -111,7 +111,7 @@ describe('chat list', () => {
     await openChatsTab();
     await userEvent.click(await screen.findByText('Glacier station'));
     await screen.findByText('Who visits the station?');
-    await userEvent.type(screen.getByPlaceholderText('Query the unified database...'), 'shorter{enter}');
+    await userEvent.type(screen.getByPlaceholderText('Ask about your documents...'), 'shorter{enter}');
     expect(await screen.findByText('Reworking the previous answer (same sources)')).toBeInTheDocument();
   });
 
@@ -125,7 +125,7 @@ describe('chat list', () => {
     expect(screen.queryByText('Who visits the station?')).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-title')).toHaveTextContent('New chat');
     expect(localStorage.getItem('pkos_last_chat')).toBeNull();
-    await userEvent.type(screen.getByPlaceholderText('Query the unified database...'), 'Fresh start{enter}');
+    await userEvent.type(screen.getByPlaceholderText('Ask about your documents...'), 'Fresh start{enter}');
     await screen.findAllByText('Answer text');
     expect(sentTo(fetch, 'POST', '/query/stream')).toEqual([{ query: 'Fresh start' }]);
   });
